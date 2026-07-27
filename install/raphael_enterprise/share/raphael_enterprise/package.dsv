@@ -1,6 +1,0 @@
-source;share/raphael_enterprise/hook/pythonpath.ps1
-source;share/raphael_enterprise/hook/pythonpath.dsv
-source;share/raphael_enterprise/hook/pythonpath.sh
-source;share/raphael_enterprise/hook/ament_prefix_path.ps1
-source;share/raphael_enterprise/hook/ament_prefix_path.dsv
-source;share/raphael_enterprise/hook/ament_prefix_path.sh

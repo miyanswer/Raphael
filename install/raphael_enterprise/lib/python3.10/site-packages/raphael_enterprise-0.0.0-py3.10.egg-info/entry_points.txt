@@ -1,5 +1,0 @@
-[console_scripts]
-architect_node = raphael_enterprise.architect_node:main
-course_lap_node = raphael_enterprise.course_lap_node:main
-cto_node = raphael_enterprise.cto_node:main
-reviewer_node = raphael_enterprise.reviewer_node:main
