@@ -40,7 +40,12 @@ class Visualizer(ShowBase):
         self.map_center_y = (min_y + max_y) / 2.0
 
         # マルチウィンドウ（監視マップ固定カメラ用サブウィンドウ）の構築
-        self.sub_win = self.openWindow(name="Top View Window", requireWindow=True)
+        self.sub_win = self.openWindow(
+            name="Top View Window",
+            requireWindow=True,
+            keepCamera=False,
+            makeCamera=False
+        )
         self.sub_cam = self.makeCamera(self.sub_win)
         self.sub_cam.reparentTo(self.render)
         # コース全体の中央上空 (Z=150.0m) に固定配置

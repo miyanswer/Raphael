@@ -90,3 +90,26 @@
 5. [Motor Output] コマンド送信
    └─ 最新の cmd_vel (速度・角速度) を機体へ Publish。
 ```
+
+---
+
+## 5. Visualizer（3Dシミュレータ）のマルチウィンドウ・ビュー分離改修
+
+### 改修概要
+3Dシミュレーション環境（`src/simulation/visualizer.py`）において、2つ目のサブウィンドウ（Top View Window）に一人称カメラ（`self.cam`）と上空俯瞰カメラ（`sub_cam`）の両方が重なって描画されていた問題を改修。
+
+### 修正詳細 (`src/simulation/visualizer.py`)
+`openWindow()` 呼び出し時に `keepCamera=False` および `makeCamera=False` を指定し、サブウィンドウへの一人称カメラの引き継ぎおよびデフォルトカメラの自動生成を遮断した。
+
+```python
+self.sub_win = self.openWindow(
+    name="Top View Window",
+    requireWindow=True,
+    keepCamera=False,   # 一人称カメラの自動引き継ぎを防止
+    makeCamera=False    # デフォルトカメラの自動作成を防止
+)
+self.sub_cam = self.makeCamera(self.sub_win)  # Top View専用カメラのみをアタッチ
+```
+
+*   **1つ目のメインウィンドウ**: ロボット視点（一人称 / FPV）のみを独立して描画。
+*   **2つ目のサブウィンドウ (`Top View Window`)**: コース全体の上空150m固定視点（Top View）のみを独立して描画。
