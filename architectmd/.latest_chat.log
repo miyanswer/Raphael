@@ -1,102 +1,104 @@
-user: 【修正対象として指定された既存設計書: visual_racing_4lines_pure_pursuit.md】
+user: 【修正対象として指定された既存設計書: 35_visual_racing_polyfit_continuous_tracking.md】
 ```markdown
-# ARCH_TITLE: visual_racing_4lines_pure_pursuit
+# ARCH_TITLE: visual_racing_polyfit_continuous_tracking
 
 ## 1. システム概要と決定された採用技術
 
 ### システム概要
-本設計は、自動運転AI（ビジュアルレーシングAI）の超軽量スキャンライン制御に対し、**「4本スキャンラインによる高精度ピュアパースート（先読み）制御」**を導入する改修である。
-従来の設計から抽出ラインをさらに増やし、「カーブ検知用（1本）」と「ステアリング補間用（3本：先読み・中間・近景）」に役割を完全分離する。これにより、コースの変化に対する解像度が飛躍的に向上し、複雑なコーナーにおいても急ハンドルを防ぎつつ、路面に吸い付くような理想的で滑らかなアウト・イン・アウトの走行軌道を実現する。
+本設計は、自動運転AI（ビジュアルレーシングAI）の軌道追従安定性を極限まで高めるための改修である。
+カーブ走行時や画面奥にコース外の影やノイズが存在する場合にステアリングがブレる現象を解消するため、路面重心の抽出手法を刷新する。「連続トラッキング方式」と「最大ブロック抽出方式」を組み合わせることで、足元（確実な路面）から遠方にかけて探索範囲を連続的に絞り込み、純粋なコース路面だけを確実になぞる堅牢な軌道認識（4点 Polyfit）を実現する。
 
 ### 決定された採用技術
 | 項目 | 採用技術・手法 |
 |------|--------------|
-| 画像抽出手法 | NumPyによる複数1次元スライス抽出（Y軸 0.50, 0.55, 0.65, 0.75 の計4本） |
-| 速度制御ロジック | 最上段ライン（0.50）によるカーブ事前検知および減速（SPEED_SLOW）ステート切り替え |
-| 先読みステアリング制御 | 下段3ライン（0.55, 0.65, 0.75）の重心に基づく3点加重平均による目標軌道（ターゲットX）の補間計算 |
-| モーター制御 | 補間ターゲットと画面中央との1次元誤差に基づくPID制御 |
+| スキャンライン設定（計5本） | カーブ検知用(0.55) 1本、軌道追従用(0.90, 0.80, 0.70, 0.60) 4本 |
+| トラッキング探索範囲 (ROI) | 1つ下のスキャンラインで検出した路面中心を基準に「左右±150px」に探索領域を制限。 |
+| 最大ブロック抽出 | 指定された探索領域（ROI）内の黒色ピクセルにおいて、最も長く連続している塊（最大ブロック）の中心を「真の路面」として採用する。 |
+| カーブ検知・緊急停止 (維持) | 0.55ラインの重心ズレ(15%超)による減速判定、および画面下部の緑色(芝生)面積割合による緊急停止は維持。 |
+| 軌道追従制御 (維持) | 取得した4点を用いた `numpy.polyfit` 2次関数近似と、そこから逆算した目標点 `target_x` によるPID制御。 |
 
 ---
 
 ## 2. フォルダ・ファイル配置案（既存構成への差分）
 
-ファイルの新規追加・削除は発生しない。既存のAI制御ノードに対して4本ラインロジックを実装する。
+ファイルの新規追加・削除・配置変更は発生しない。既存のノードファイルのロジックのみを更新する。
 
 ```text
 📁 src/
   📁 raphael_enterprise/
     📁 raphael_enterprise/
-      📄 course_lap_node.py       # ★修正: 4本スキャンライン抽出および3点加重平均ステアリング制御の実装
+      📄 course_lap_node.py       # ★修正: スキャンラインの変更と、連続トラッキング・最大ブロック抽出ロジックの導入
 ```
-*(※シミュレータ側の `visualizer.py` 等の構成は既存のままとし、ノードの内部ロジックのみを更新する)*
 
 ---
 
 ## 3. 各ファイルの役割と必要な実装仕様
 
 ### 3-1. `course_lap_node.py`
-スキャンライン定数を4本構成へ再定義し、Image Callback内のステアリング誤差計算ロジックを刷新する。
+ビジュアルサーボ制御におけるスキャンライン定数を更新し、画像処理コールバック内の重心算出ロジックを「連続トラッキング＋最大ブロック抽出」ベースに書き換える。
 
-*   **スキャンライン定数の再定義と追加**
-    既存の定数を以下の通りに変更・追加する。
-    *   `SCAN_Y_CURVE_RATIO = 0.50` （カーブ検知・減速判定専用）
-    *   **追加:** `SCAN_Y_FAR_STEER_RATIO = 0.55` （先読み補間用）
-    *   `SCAN_Y_MID_STEER_RATIO = 0.65` （中間補間用）
-    *   `SCAN_Y_NEAR_STEER_RATIO = 0.75` （近景基準用 / 旧 `SCAN_Y_STEER_RATIO` から名称と値を変更）
-    *   **追加:** 3点加重平均用のウェイト定数（例: `WEIGHT_NEAR = 0.5`, `WEIGHT_MID = 0.3`, `WEIGHT_FAR = 0.2`）を定義し、チューニング可能にする。
+*   **制御パラメータ・定数の変更・追加**
+    *   **軌道追従（Polyfit 4ライン）用のY座標比率**
+        *   `SCAN_Y_BOTTOM_STEER_RATIO = 0.90` （維持: 足元）
+        *   `SCAN_Y_NEAR_STEER_RATIO = 0.80` （旧 0.75 から変更）
+        *   `SCAN_Y_MID_STEER_RATIO = 0.70` （旧 0.65 から変更）
+        *   `SCAN_Y_FAR_STEER_RATIO = 0.60` （旧 0.57 から変更）
+    *   **連続トラッキング用定数**
+        *   `TRACKING_ROI_WIDTH = 150` （新規追加: 基準点からの左右探索範囲ピクセル数）
 
-*   **スキャンライン画像処理ロジックの実装（Image Callback内）**
-    *   1画像のHSV変換（Vチャネル抽出）後、高さ（height）に各RATIOを掛けた4つのY座標インデックスを算出する。
-    *   **速度制御（0.50ラインの処理）**:
-        従来通り、0.50のラインから横1行データを抽出し、黒色ピクセルの幅や中心ズレを判定。カーブ条件を満たした場合、直進モード（`SPEED_FAST`）から減速モード（`PRE_CURVE` ➔ `SPEED_SLOW`）へ切り替える。
-    *   **ステアリング制御（0.55, 0.65, 0.75ラインの処理）**:
-        各ラインの横1行データから、`BLACK_V_MAX` 以下の条件を満たす黒色路面の重心X座標をそれぞれ算出する。
-        *   `center_near_x` (0.75ラインから算出)
-        *   `center_mid_x` (0.65ラインから算出)
-        *   `center_far_x` (0.55ラインから算出)
+*   **最大ブロック抽出ロジックの実装（共通処理）**
+    *   入力された1行の2値化マスク（行配列）と探索範囲 `[start_x, end_x]` から、「値が非ゼロ（黒色路面）である最も長い連続区間」を探す。
+    *   その最長連続区間の中央インデックスを算出して返す処理（関数化を推奨）を実装する。
+    *   ※範囲は `0` 以上 `width - 1` 以下にクリップする（画面外参照を防ぐため）。
 
-*   **目標軌道（ターゲットX）の算出と誤差計算**
-    *   算出した3つの重心を設定したウェイト定数を用いて加重平均し、最終的な目標点（`target_x`）を算出する。
-        *   計算式（例）: `target_x = (center_near_x * WEIGHT_NEAR) + (center_mid_x * WEIGHT_MID) + (center_far_x * WEIGHT_FAR)`
-    *   画像中央座標（`width / 2.0`）と `target_x` のズレを算出し、これをステアリングの `error` とする。
-        *   計算式: `error = (width / 2.0) - target_x`
+*   **連続トラッキングロジック（Image Callback内）**
+    以下の手順で下から上へと探索を連鎖させる。
+    1.  **Bottom (0.90) の算出:**
+        *   探索範囲: `[0, width - 1]` （画面全幅）
+        *   処理: 画面全幅から最大ブロックを抽出し、中心を `center_bottom` とする。
+    2.  **Near (0.80) の算出:**
+        *   探索範囲: `[center_bottom - 150, center_bottom + 150]`
+        *   処理: 上記ROI内で最大ブロックを抽出し、中心を `center_near` とする。
+    3.  **Mid (0.70) の算出:**
+        *   探索範囲: `[center_near - 150, center_near + 150]`
+        *   処理: 上記ROI内で最大ブロックを抽出し、中心を `center_mid` とする。
+    4.  **Far (0.60) の算出:**
+        *   探索範囲: `[center_mid - 150, center_mid + 150]`
+        *   処理: 上記ROI内で最大ブロックを抽出し、中心を `center_far` とする。
 
-*   **PID制御と出力**
-    *   算出した新しい `error` を既存のPID計算（`STEER_KP`, `STEER_KD`）に適用し、角速度 `cmd_vel.angular.z` を決定する。
+*   **後続処理（変更なし）**
+    *   算出された `center_bottom`, `center_near`, `center_mid`, `center_far` の4点のX座標と対応するY座標を用いて `np.polyfit` で2次関数を算出。
+    *   基準Y位置（0.625）での `target_x` を逆算し、PID制御でステアリングへ反映させる。
 
 ---
 
 ## 4. データ・制御の処理フロー
 
-改修後のシステムにおける処理フローは以下の通りとなる。
-
 ```text
-【ビジュアルレーシング・4本スキャンライン処理フロー（毎フレーム）】
+【Continuous Tracking & Polyfit 制御 フロー（毎フレーム）】
 
-1. [Image Callback] 
-   └─ カメラ画像取得およびHSV空間（Vチャネル等）への変換（重い2次元処理はここまで）。
+1. [Image Acquisition]
+   └─ カメラ画像取得、HSV変換、黒色（路面）抽出用2値化マスク生成。
 
-2. [Scanline Extraction] 1次元データの抽出（計4本）
-   ├─ Y = height * 0.50 の横1行を抽出（カーブ検知ライン）
-   ├─ Y = height * 0.55 の横1行を抽出（先読みライン）
-   ├─ Y = height * 0.65 の横1行を抽出（中間ライン）
-   └─ Y = height * 0.75 の横1行を抽出（近景ライン）
+2. [Curve Detection] 高速カーブ先読みと速度制御
+   └─ Y = 0.55 ラインの重心ズレ(15%以上)に基づき PRE_CURVE / STRAIGHT を切り替え、目標速度を設定。
 
-3. [Speed Control] カーブ事前検知・速度制御
-   ├─ カーブ検知ライン (0.50) の黒色ピクセル情報をチェック。
-   └─ カーブ進入を検知した場合、速度を SPEED_FAST から SPEED_SLOW へ切り替え。
+3. [Continuous Tracking] 連続トラッキング & 最大ブロック抽出
+   ├─ [Bottom] Y = 0.90 の行全体から最大路面ブロックを探し、中心(center_bottom)を確定。
+   ├─ [Near]   Y = 0.80 の行において、center_bottom ±150px の範囲内で最大ブロックを探し中心(center_near)を確定。
+   ├─ [Mid]    Y = 0.70 の行において、center_near ±150px の範囲内で最大ブロックを探し中心(center_mid)を確定。
+   └─ [Far]    Y = 0.60 の行において、center_mid ±150px の範囲内で最大ブロックを探し中心(center_far)を確定。
 
-4. [Steering Control] 3ライン加重平均による先読みセンタリング制御
-   ├─ 近景ライン (0.75) から手前の重心（center_near_x）を算出。
-   ├─ 中間ライン (0.65) から中間の重心（center_mid_x）を算出。
-   ├─ 先読みライン (0.55) から少し先の重心（center_far_x）を算出。
-   ├─ 3点の重心を加重平均し、目標点 target_x を計算。
-   │  例: (center_near_x * 0.5) + (center_mid_x * 0.3) + (center_far_x * 0.2)
-   ├─ 目標点とのズレ error = (画面幅 / 2.0) - target_x を計算。
+4. [Steering Trajectory Calculation] 4点2次関数近似
+   ├─ 抽出した4点のY座標とX座標から np.polyfit(Y_array, X_array, 2) を実行し、係数(a,b,c)を取得。
+   └─ 基準Y(0.625)を2次関数に代入し、ノイズのない滑らかな軌道上の目標点 target_x を逆算。
+
+5. [Error Calculation & PID]
+   ├─ ステアリング誤差: error = (width / 2.0) - target_x
    └─ PID制御により error を角速度コマンド (cmd_vel.angular.z) へ変換。
 
-5. [Motor Output] コマンド送信
-   └─ 最新の cmd_vel (速度・角速度) を機体へ Publish（先読みに基づく滑らかで安定した走行）。
+6. [Command Publish]
+   └─ 最新の速度・角速度コマンドをシミュレータへ送信。
 ```
 ```
 user: 【現在の実装コード構造と内容サマリー】
@@ -196,14 +198,12 @@ class ReviewerNode(Node):
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ビジュアルレーシングナビゲーションノード (course_lap_visual_racing_v1)
+ビジュアルレーシングナビゲーションノード (course_lap_node)
 ===========================================================
-オドメトリ依存の区間管理を完全廃止し、カメラ画像情報のみで以下を実現：
-1. 黒色路面の重心に基づくビジュアルサーボ（センタリング制御）
-2. 画像上部の形状・白線検知によるカーブ先読みとステート切り替え
-3. アウト・イン・アウト軌道のための動的目標オフセット設定
-4. スローイン・ファストアウトのための動的走行速度制御
-5. 画面下部の緑色（芝生）ピクセル超過による緊急停止（安全機構）
+カメラ画像のみを入力として受け取り、以下の制御を実行：
+1. 連続トラッキング(ROI±150px) ＆ 最大ブロック抽出による堅牢な4点(0.90, 0.80, 0.70, 0.60)2次関数近似(Polyfit)軌道追従
+2. 0.55スキャンラインの路面重心オフセット(15%)による高速レスポンスカーブ先読みと速度制御
+3. 画面下部(85%〜100%)の緑色(芝生)割合チェックによる緊急停止機構
 """
 
 import math
@@ -218,17 +218,18 @@ from cv_bridge import CvBridge
 import cv2
 
 # ─────────────────────────────────────────
-#  4本スキャンライン制御パラメータ (Pure Pursuit 先読み)
+#  制御パラメータ (連続トラッキング 4点 Polyfit Pure Pursuit & 高速カーブ検知)
 # ─────────────────────────────────────────
-SCAN_Y_CURVE_RATIO      = 0.50     # 最上段: カーブ検知・速度制御専用 (0.50)
-SCAN_Y_FAR_STEER_RATIO  = 0.55     # 上段: 先読みライン (0.55)
-SCAN_Y_MID_STEER_RATIO  = 0.65     # 中段: 中間補間ライン (0.65)
-SCAN_Y_NEAR_STEER_RATIO = 0.75     # 下段: 近景基準ライン (0.75)
+SCAN_Y_CURVE_RATIO          = 0.55     # 最上段: カーブ検知専用 (0.55)
+CURVE_OFFSET_THRESHOLD_RATIO= 0.15     # カーブ検知オフセット閾値 (画面幅の15%)
 
-# 3点加重平均ウェイト
-WEIGHT_NEAR             = 0.5      # 近景重み
-WEIGHT_MID              = 0.3      # 中間重み
-WEIGHT_FAR              = 0.2      # 先読み重み
+SCAN_Y_FAR_STEER_RATIO      = 0.60     # 遠方スキャンライン (0.60)
+SCAN_Y_MID_STEER_RATIO      = 0.70     # 中間スキャンライン (0.70)
+SCAN_Y_NEAR_STEER_RATIO     = 0.80     # 近景スキャンライン (0.80)
+SCAN_Y_BOTTOM_STEER_RATIO   = 0.90     # 足元スキャンライン (0.90)
+
+TRACKING_ROI_WIDTH          = 150      # 連続トラッキング探索領域 (±150px)
+TRACKING_TARGET_Y_RATIO     = 0.625    # 2次曲線評価・追従目標Y位置 (0.625)
 
 # ─────────────────────────────────────────
 #  レーシング制御パラメータ
@@ -253,10 +254,7 @@ EMERGENCY_GREEN_RATIO = 0.80   # 画面下部ピクセルで緑が80%を超え�
 #  ステート定義
 # ─────────────────────────────────────────
 class State:
-    INIT           = "INIT"
-    STRAIGHT       = "STRAIGHT"       # 直線（高速）
-    PRE_CURVE      = "PRE_CURVE"      # カーブ手前検知（減速）
-    TURNING        = 
+    INIT           =
 
 --- 📄 raphael_enterprise/raphael_enterprise/architect_node.py ---
 #!/usr/bin/env python3
@@ -605,7 +603,12 @@ class Visualizer(ShowBase):
         self.map_center_y = (min_y + max_y) / 2.0
 
         # マルチウィンドウ（監視マップ固定カメラ用サブウィンドウ）の構築
-        self.sub_win = self.openWindow(name="Top View Window", requireWindow=True)
+        self.sub_win = self.openWindow(
+            name="Top View Window",
+            requireWindow=True,
+            keepCamera=False,
+            makeCamera=False
+        )
         self.sub_cam = self.makeCamera(self.sub_win)
         self.sub_cam.reparentTo(self.render)
         # コース全体の中央上空 (Z=150.0m) に固定配置
@@ -620,10 +623,7 @@ class Visualizer(ShowBase):
         cm.setFrame(-500, 500, -500, 500)
         ground = self.render.attachNewNode(cm.generate())
         ground.setHpr(0, -90, 0)
-        ground.setPos(0, 0, -0.02)
-        ground.setColor(0.55, 0.27, 0.07, 1.0)  # 大地色（サドルブラウン）
-
-       
+        grou
 
 --- 📄 simulation/robot.py ---
 import numpy as np
@@ -1429,1381 +1429,23 @@ def test_node_count():
 
 
 【社長からの修正・改善要望】:
-far_steerを0.60にすることと、点をつなげた線をなめらかにしてそこを追従させたい
-assistant: 社長の要望、確かに承りました。
-現在の「加重平均による単一ポイント追従」から、「複数ポイントを滑らかな曲線（軌道）として結び、その線に沿って追従する」より高度なピュアパースート制御への移行ですね。
-
-既存の `course_lap_node.py` に対して、以下の2点を軸に修正を行う方針をご提案します。
-
-### 1. 先読みライン定数の調整
-`SCAN_Y_FAR_STEER_RATIO` の値を変更し、先読みの距離感を調整します。
-*   **変更前**: `0.55`
-*   **変更後**: `0.60` （中間0.65、近景0.75との間隔を詰めて精度を高めます）
-
-### 2. 「滑らかな軌道線」の算出と追従ロジックへの刷新
-従来の「3点加重平均」を廃止し、**「2次関数近似（曲線のフィッティング）」**による軌道追従ロジックに変更します。
-
-*   **ロジックの変更方針**:
-    1.  抽出した3ライン（0.75, 0.65, 0.60）それぞれの黒色路面重心座標（X, Y）を取得します。
-    2.  `numpy.polyfit` 等を用いて、この3点を通る**2次曲線（滑らかな近似線）**の係数を算出します。
-    3.  算出した曲線関数を用いて、車両が追従すべき理想の先読みY座標（例: 0.60〜0.65の中間など）における「滑らかな線上のX座標」を逆算し、これを新たな `target_x` とします。
-    4.  得られた `target_x` と画面中央との誤差（`error`）を取り、既存のPID制御に渡します。
-
-これにより、カメラのノイズや急なカーブでもターゲットが暴れることなく、線に沿った非常に滑らかで自然なステアリング（追従）が実現できます。
-
-この方針で `course_lap_node.py` の実装を更新してよろしいでしょうか？
-user: 【現在の実装コード構造と内容サマリー】
-
---- 📄 raphael_enterprise/setup.py ---
-from setuptools import find_packages, setup
-
-package_name = 'raphael_enterprise'
-
-setup(
-    name=package_name,
-    version='0.0.0',
-    packages=find_packages(exclude=['test']),
-    data_files=[
-        ('share/ament_index/resource_index/packages',
-            ['resource/' + package_name]),
-        ('share/' + package_name, ['package.xml']),
-    ],
-    install_requires=['setuptools'],
-    zip_safe=True,
-    maintainer='user25',
-    maintainer_email='e1x22044@oit.ac.jp',
-    description='TODO: Package description',
-    license='TODO: License declaration',
-    extras_require={
-        'test': [
-            'pytest',
-        ],
-    },
-    entry_points={
-        'console_scripts': [
-            'cto_node = raphael_enterprise.cto_node:main',
-            'architect_node = raphael_enterprise.architect_node:main',
-            'reviewer_node = raphael_enterprise.reviewer_node:main',
-            'course_lap_node = raphael_enterprise.course_lap_node:main',
-        ],
-    },
-)
-
-
---- 📄 raphael_enterprise/raphael_enterprise/reviewer_node.py ---
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
-import rclpy
-from rclpy.node import Node
-from example_interfaces.srv import Trigger
-from openai import OpenAI
-import threading
-import webbrowser
-import os
-from pathlib import Path
-from flask import Flask, render_template_string, request, jsonify, send_from_directory
-
-class ReviewerNode(Node):
-    def __init__(self):
-        super().__init__('reviewer_node')
-        
-        # 👑 Antigravity IDEのローカルAPI（正確なGemini IDを指定）
-        self.ai_client = OpenAI(
-            base_url="http://localhost:11435/v1",
-            api_key="antigravity-integrated-token"
-        )
-        self.model_name = "antigravity-gemini-3.1-pro-high"
-
-        # ワークスペース・設計書・画像ディレクトリ
-        self.workspace_src = Path.home() / "raphael_ws" / "src"
-        self.architect_dir = Path.home() / "raphael_ws" / "architectmd"
-        self.imgs_dir = Path.home() / "raphael_ws" / "imgs"
-        self.imgs_dir.mkdir(parents=True, exist_ok=True)
-
-        # 🎯 修正チーム（Reviewer）のシステムプロンプト
-        self.conversation_history = [
-            {"role": "system", "content": (
-                "あなたは開発会社『Raphael』の最高品質管理責任者・コード修正スペシャリスト（Lead Reviewer）です。\n"
-                "あなたの役割はプログラムを直接書くことではなく、社長からの『ここを修正したい』『画面が崩れている』という要望や実行結果の画像に対して、\n"
-                "既存のソースコードと設計書を分析し、どのように修正・改修すべきかを対話形式で具体的に詰めていくことです。\n"
-                "【ルール】\n"
-                "1. プログラムコードそのものを全量出力することは禁止します（修正方針・差分のロジックを説明しなさい）。\n"
-                "2. 社長から『~/raphael_ws/imgs/』内の画像パスが指定された場合、その画像（実行結果や画面イメージ等）とソースコードを照らし合わせて不具合の原因と修正案を分析しなさい。\n"
-                "3. 簡潔で的確な要点のみを返しなさい。"
-            )}
-        ]
-
-        # 🔗 Architectノードとの通信クライアント
-        self.cli = self.create_client(Trigger, '/raphael/generate_architecture')
-
-        # 🌐 Flask (Webサーバー: ポート 5001)
-        self.app = Flask(__name__)
-        self.setup_routes()
-
-        self.flask_thread = threading.Thread(target=lambda: self.app.run(host='127.0.0.1', port=5001, debug=False, use_reloader=False))
-        self.flask_thread.daemon = True
-       
-
---- 📄 raphael_enterprise/raphael_enterprise/course_lap_node.py ---
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-ビジュアルレーシングナビゲーションノード (course_lap_visual_racing_v1)
-===========================================================
-オドメトリ依存の区間管理を完全廃止し、カメラ画像情報のみで以下を実現：
-1. 黒色路面の重心に基づくビジュアルサーボ（センタリング制御）
-2. 画像上部の形状・白線検知によるカーブ先読みとステート切り替え
-3. アウト・イン・アウト軌道のための動的目標オフセット設定
-4. スローイン・ファストアウトのための動的走行速度制御
-5. 画面下部の緑色（芝生）ピクセル超過による緊急停止（安全機構）
-"""
-
-import math
-import numpy as np
-import rclpy
-from rclpy.node import Node
-from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
-
-from geometry_msgs.msg import Twist
-from sensor_msgs.msg import Image
-from cv_bridge import CvBridge
-import cv2
-
-# ─────────────────────────────────────────
-#  4本スキャンライン制御パラメータ (Pure Pursuit 先読み)
-# ─────────────────────────────────────────
-SCAN_Y_CURVE_RATIO      = 0.50     # 最上段: カーブ検知・速度制御専用 (0.50)
-SCAN_Y_FAR_STEER_RATIO  = 0.55     # 上段: 先読みライン (0.55)
-SCAN_Y_MID_STEER_RATIO  = 0.65     # 中段: 中間補間ライン (0.65)
-SCAN_Y_NEAR_STEER_RATIO = 0.75     # 下段: 近景基準ライン (0.75)
-
-# 3点加重平均ウェイト
-WEIGHT_NEAR             = 0.5      # 近景重み
-WEIGHT_MID              = 0.3      # 中間重み
-WEIGHT_FAR              = 0.2      # 先読み重み
-
-# ─────────────────────────────────────────
-#  レーシング制御パラメータ
-# ─────────────────────────────────────────
-SPEED_FAST          = 0.6      # 直線走行速度（ファストアウト） [m/s]
-SPEED_SLOW          = 0.25     # カーブ旋回速度（スローイン） [m/s]
-STEER_KP            = 0.005    # ステアリング 比例ゲイン
-STEER_KD            = 0.004    # ステアリング 微分ゲイン (ダンパー効果強化)
-
-# HSV色空間閾値（シミュレータ環境）
-BLACK_V_MAX         = 50       # 黒路面 V上限
-WHITE_V_MIN         = 200      # 白線 V下限
-GREEN_H_LOW, GREEN_H_HIGH = 35, 85   # 芝生 H範囲
-GREEN_S_LOW, GREEN_S_HIGH = 40, 255  # 芝生 S範囲
-GREEN_V_LOW, GREEN_V_HIGH = 40, 255  # 芝生 V範囲
-
-# 安全装置閾値
-EMERGENCY_GREEN_RATIO = 0.80   # 画面下部ピクセルで緑が80%を超えたら緊急停止
-
-
-# ─────────────────────────────────────────
-#  ステート定義
-# ─────────────────────────────────────────
-class State:
-    INIT           = "INIT"
-    STRAIGHT       = "STRAIGHT"       # 直線（高速）
-    PRE_CURVE      = "PRE_CURVE"      # カーブ手前検知（減速）
-    TURNING        = 
-
---- 📄 raphael_enterprise/raphael_enterprise/architect_node.py ---
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
-import rclpy
-from rclpy.node import Node
-from example_interfaces.srv import Trigger  # ROS 2標準のTrigger型サービス
-from openai import OpenAI
-import os
-import re
-from pathlib import Path
-
-class ArchitectNode(Node):
-    def __init__(self):
-        super().__init__('architect_node')
-        
-        # 👑 Antigravity IDEのローカルAPIに直結（設計専任モデル）
-        self.ai_client = OpenAI(
-            base_url="http://localhost:11435/v1",
-            api_key="antigravity-integrated-token"
-        )
-        self.model_name = "antigravity-gemini-3.1-pro"
-
-        # ワークスペースPath
-        self.workspace_src = Path.home() / "raphael_ws" / "src"
-        self.conversation_log = ""
-
-        # 📥 CTOからの設計要請を受け取るROS 2 サービスサーバー
-        self.srv = self.create_service(
-            Trigger,
-            '/raphael/generate_architecture',
-            self.generate_architecture_callback
-        )
-        
-        self.get_logger().info('📐 [Architectノード] 起動完了。CTOからの設計要請（Service）を待機中...')
-
-    def scan_workspace(self):
-        """~/raphael_ws/src の現状の物理構成を独立スキャン"""
-        if not self.workspace_src.exists():
-            return "ワークスペース (~/raphael_ws/src) が見つかりません。"
-
-        structure_info = ["【現在のワークスペース物理構造】"]
-        for root, dirs, files in os.walk(self.workspace_src):
-            dirs[:] = [d for d in dirs if d not in ['__pycache__', '.git', 'build', 'install', 'log']]
-            level = root.replace(str(self.workspace_src), '').count(os.sep)
-            indent = '  ' * level
-            structure_info.append(f"{indent}📁 {os.path.basename(root)}/")
-            sub_indent = '  ' * (level + 1)
-            for f in files:
-                if not f.endswith(('.pyc', '.pyo')):
-                    structure_info.append(f"{sub_indent}📄 {f}")
-        return "\n".join(structure_info)
-
-    def generate_architecture_callback(self, request, response):
-        self.get_logger().info('📐 [Architectノード] CTOから設計要求を受信。独立思考プロセスを開始します...')
-        
-        # 最新の対話ログファイルを読み込み（または直接テキスト解
-
---- 📄 raphael_enterprise/raphael_enterprise/cto_node.py ---
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
-import rclpy
-from rclpy.node import Node
-from example_interfaces.srv import Trigger
-from openai import OpenAI
-import threading
-import webbrowser
-import os
-from pathlib import Path
-from flask import Flask, render_template_string, request, jsonify, send_from_directory
-
-class CtoNode(Node):
-    def __init__(self):
-        super().__init__('cto_node')
-        
-        # 👑 Antigravity IDEのローカルAPI（Gemini 3.1 Pro）
-        self.ai_client = OpenAI(
-            base_url="http://localhost:11435/v1",
-            api_key="antigravity-integrated-token"
-        )
-        self.model_name = "antigravity-gemini-3.1-pro"
-
-        # 🖼️ 画像保存用ディレクトリ (~/raphael_ws/imgs/)
-        self.imgs_dir = Path.home() / "raphael_ws" / "imgs"
-        self.imgs_dir.mkdir(parents=True, exist_ok=True)
-
-        # 🎯 CTOのシステムプロンプト
-        self.conversation_history = [
-            {"role": "system", "content": (
-                "あなたは開発会社『Raphael』のCTOであり、Miya社長の対等な技術パートナー（右腕）です。\n"
-                "【絶対ルール】\n"
-                "1. プログラムのコードを直接出力することは厳重に禁止します。\n"
-                "2. 社長から『~/raphael_ws/imgs/』内の画像パスが指定された場合、その画像（構成図やイメージ等）の内容を深く分析してフィードバックを行いなさい。\n"
-                "3. 社長から要望を受け取ったら、技術的な仕様について『2〜4つの明確な選択肢（A, B, C...）』を提示しなさい。\n"
-                "4. 簡潔でスッキリした要点のみを返しなさい。"
-            )}
-        ]
-
-        # 🔗 Architectノードとの通信
-        self.cli = self.create_client(Trigger, '/raphael/generate_architecture')
-
-        # 🌐 Flask（Webサーバー）
-        self.app = Flask(__name__)
-        self.setup_routes()
-
-        self.flask_thread = threading.Thread(target=lambda: self.app.run(host='127.0.0.1', port=5000, debug=False, use_reloader=False))
-        self.flask_thread.daemon = True
-        self.flask_thread.start()
-
-        webbrowser.open("http://127.0.0.1:5000")
-        self.get_logger().info('👔 [CTOノード] 起動完了。~/raphael_ws/imgs/ 連携機能対応。')
-
-    def setup_routes(self):
-        HTML_TEMPLATE = """
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title
-
---- 📄 raphael_enterprise/raphael_enterprise/__init__.py ---
-
-
---- 📄 raphael_enterprise/test/test_flake8.py ---
-# Copyright 2017 Open Source Robotics Foundation, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
-from ament_flake8.main import main_with_errors
-import pytest
-
-
-@pytest.mark.flake8
-@pytest.mark.linter
-def test_flake8():
-    rc, errors = main_with_errors(argv=[])
-    assert rc == 0, \
-        'Found %d code style errors / warnings:\n' % len(errors) + \
-        '\n'.join(errors)
-
-
---- 📄 raphael_enterprise/test/test_pep257.py ---
-# Copyright 2015 Open Source Robotics Foundation, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
-from ament_pep257.main import main
-import pytest
-
-
-@pytest.mark.linter
-@pytest.mark.pep257
-def test_pep257():
-    rc = main(argv=['.', 'test'])
-    assert rc == 0, 'Found code style errors / warnings'
-
-
---- 📄 raphael_enterprise/test/test_copyright.py ---
-# Copyright 2015 Open Source Robotics Foundation, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
-from ament_copyright.main import main
-import pytest
-
-
-# Remove the `skip` decorator once the source file(s) have a copyright header
-@pytest.mark.skip(reason='No copyright header has been placed in the generated source file.')
-@pytest.mark.copyright
-@pytest.mark.linter
-def test_copyright():
-    rc = main(argv=['.', 'test'])
-    assert rc == 0, 'Found errors'
-
-
---- 📄 simulation/course.py ---
-import numpy as np
-from simulation import config
-
-STEP_SIZE = 0.02  # [m] 刻み幅
-
-class CourseGenerator:
-    def __init__(self, segments=None):
-        self.segments = segments if segments is not None else config.SEGMENTS
-
-    def generate_course_points(self):
-        """
-        config.SEGMENTS に基づいてコース座標列 (N, 2) を生成する。
-        L1中心左端を原点 (0, 0) とする。
-        """
-        x, y = 0.0, 0.0
-        theta = 0.0  # [rad]
-
-        points = []
-
-        for seg in self.segments:
-            seg_type = seg["type"]
-
-            if seg_type == "straight":
-                length = seg["length"]
-                num_steps = int(np.ceil(length / STEP_SIZE))
-                actual_step = length / num_steps if num_steps > 0 else 0
-                dx = actual_step * np.cos(theta)
-                dy = actual_step * np.sin(theta)
-
-                for _ in range(num_steps):
-                    points.append([x, y])
-                    x += dx
-                    y += dy
-
-            elif seg_type == "arc":
-                radius = seg["radius"]
-                angle_deg = seg["angle_deg"]
-                angle_rad = np.radians(angle_deg)
-                direction = seg.get("direction", "right")
-
-                arc_length = radius * angle_rad
-                num_steps = int(np.ceil(arc_length / STEP_SIZE))
-                d_alpha = angle_rad / num_steps if num_steps > 0 else 0
-
-                if direction == "right":
-                    # 旋回中心: theta - pi/2 方向
-                    cx = x + radius * np.cos(theta - np.pi / 2.0)
-                    cy = y + radius * np.sin(theta - np.pi / 2.0)
-                    # 初期角度 (旋回中心から現在位置への角度)
-                    start_angle = np.arctan2(y - cy, x - cx)
-
-                    for step_i in range(num_steps):
-                        cur_a = start_angle - step_i * d_alpha
-                        px = cx + radius * np.cos(cur_a)
-                        py = cy + radius * np.sin(cur_a)
-                        points.append([px, py])
-
-                    # 終端
-
---- 📄 simulation/camera_simulator.py ---
-import numpy as np
-from simulation import config
-
-class CameraSimulator:
-    def __init__(self, seed=42):
-        if seed is not None:
-            np.random.seed(seed)
-
-    def get_features(self, current_segment_id, course_generator):
-        """
-        現在の区間IDとCourseGeneratorから仮想カメラ特徴量を生成する。
-        ガウスノイズを加算。
-        """
-        base_curvature = course_generator.get_segment_curvature(current_segment_id)
-
-        if base_curvature == 0.0:
-            asymmetry = 0.0
-            convergence = 1.0
-        else:
-            asymmetry = float(np.clip(base_curvature * 0.5, 0.0, 1.0))
-            convergence = float(np.clip(1.0 - base_curvature * 0.5, 0.0, 1.0))
-
-        noise_std = config.NOISE_STD
-        curvature_noise = np.random.normal(0, noise_std)
-        asymmetry_noise = np.random.normal(0, noise_std)
-        convergence_noise = np.random.normal(0, noise_std)
-
-        curvature_estimate = float(base_curvature + curvature_noise)
-        line_asymmetry = float(np.clip(asymmetry + asymmetry_noise, -1.0, 1.0))
-        line_convergence = float(np.clip(convergence + convergence_noise, 0.0, 1.0))
-
-        return {
-            "curvature": curvature_estimate,
-            "asymmetry": line_asymmetry,
-            "convergence": line_convergence
-        }
-
-
---- 📄 simulation/visualizer.py ---
-import numpy as np
-from direct.showbase.ShowBase import ShowBase
-from panda3d.core import (
-    CardMaker,
-    LineSegs,
-    NodePath,
-    GeomNode,
-    Geom,
-    GeomVertexFormat,
-    GeomVertexData,
-    GeomVertexWriter,
-    GeomTriangles,
-    Vec4
-)
-from simulation import config
-
-class Visualizer(ShowBase):
-    def __init__(self, course_points, node_positions, left_boundary, right_boundary):
-        ShowBase.__init__(self)
-        self.course_points = course_points
-        self.node_positions = node_positions
-        self.left_boundary = left_boundary
-        self.right_boundary = right_boundary
-
-        # 背景色（空）を「水色（スカイブルー）」に設定
-        self.setBackgroundColor(0.53, 0.81, 0.92, 1.0)
-
-        # 3Dオブジェクトの構築
-        self._build_ground_polygon()
-        self._build_road_polygon()
-        self._build_road_lines()
-        self._build_robot_model()
-        self._build_node_markers()
-
-        # コース全景のBounding Box (AABB) から中心座標 (cx, cy) を算出
-        pts = np.array(self.course_points)
-        min_x, max_x = np.min(pts[:, 0]), np.max(pts[:, 0])
-        min_y, max_y = np.min(pts[:, 1]), np.max(pts[:, 1])
-        self.map_center_x = (min_x + max_x) / 2.0
-        self.map_center_y = (min_y + max_y) / 2.0
-
-        # マルチウィンドウ（監視マップ固定カメラ用サブウィンドウ）の構築
-        self.sub_win = self.openWindow(name="Top View Window", requireWindow=True)
-        self.sub_cam = self.makeCamera(self.sub_win)
-        self.sub_cam.reparentTo(self.render)
-        # コース全体の中央上空 (Z=150.0m) に固定配置
-        self.sub_cam.setPos(self.map_center_x, self.map_center_y, 150.0)
-        self.sub_cam.setHpr(0, -90, 0)
-
-    def _build_ground_polygon(self):
-        """茶色の広大な大地 (Z=-0.02) と、コース沿い4mの緑の芝生 (Z=-0.01) を生成"""
-        
-        # 1. 茶色の広大な大地（ベース）
-        cm = CardMaker('ground_plane')
-        cm.setFrame(-500, 500, -500, 500)
-        ground = self.render.attachNewNode(cm.generate())
-        ground.setHpr(0, -90, 0)
-        ground.setPos(0, 0, -0.02)
-        ground.setColor(0.55, 0.27, 0.07, 1.0)  # 大地色（サドルブラウン）
-
-       
-
---- 📄 simulation/robot.py ---
-import numpy as np
-import rclpy
-from rclpy.node import Node
-from geometry_msgs.msg import Twist
-from simulation import config
-
-class DifferentialDriveRobot(Node):
-    def __init__(self, start_x, start_y, start_theta=0.0):
-        super().__init__('sim_robot_node')
-        self.x = float(start_x)
-        self.y = float(start_y)
-        self.theta = float(start_theta)
-        self.odom_distance = 0.0
-
-        # ROS 2 コマンド速度
-        self.cmd_v = 0.0
-        self.cmd_w = 0.0
-
-        # Subscriptions
-        self.cmd_sub = self.create_subscription(
-            Twist,
-            '/cmd_vel',
-            self._cb_cmd_vel,
-            10
-        )
-
-    def _cb_cmd_vel(self, msg: Twist):
-        """ROS 2 /cmd_vel 受信"""
-        self.cmd_v = msg.linear.x
-        self.cmd_w = msg.angular.z
-
-    def update_physics(self, dt):
-        """速度・角速度コマンドに基づいて自律オドメトリ物理移動"""
-        self.theta += self.cmd_w * dt
-        dx = self.cmd_v * np.cos(self.theta) * dt
-        dy = self.cmd_v * np.sin(self.theta) * dt
-        self.x += dx
-        self.y += dy
-        self.odom_distance += float(np.hypot(dx, dy))
-
-    def get_state(self):
-        return {
-            "x": self.x,
-            "y": self.y,
-            "theta": self.theta,
-            "odom": self.odom_distance
-        }
-
-    @property
-    def position(self):
-        return (self.x, self.y)
-
-
---- 📄 simulation/main.py ---
-import os
-import sys
-import numpy as np
-import rclpy
-from sensor_msgs.msg import Image
-from cv_bridge import CvBridge
-
-from simulation.course import CourseGenerator
-from simulation.robot import DifferentialDriveRobot
-from simulation.node_manager import NodeManager
-from simulation.visualizer import Visualizer
-from simulation import config
-
-def main():
-    # ROS 2 初期化
-    rclpy.init(args=sys.argv)
-
-    # Step 2: コース生成
-    cg = CourseGenerator(config.SEGMENTS)
-    course_points = cg.generate_course_points()
-    node_positions = cg.generate_node_positions()
-    left_boundary, right_boundary = cg.generate_boundary_points(course_points)
-
-    # Step 3: 各モジュール初期化
-    start_pos = node_positions["N02"]  # スタート地点 (L1中心)
-    robot = DifferentialDriveRobot(start_pos[0], start_pos[1], start_theta=0.0)
-    node_manager = NodeManager(node_positions)
-    visualizer = Visualizer(course_points, node_positions, left_boundary, right_boundary)
-
-    # ROS 2 パブリッシャ & CvBridge
-    image_pub = robot.create_publisher(Image, '/camera/image_raw', 10)
-    bridge = CvBridge()
-
-    lap_logged = False
-
-    # Step 4: Panda3D用更新タスクの定義
-    def simulation_task(task):
-        nonlocal lap_logged
-
-        # ROS 2 イベント処理（/cmd_vel 受信など）
-        rclpy.spin_once(robot, timeout_sec=0.0)
-
-        # 自律物理移動更新
-        robot.update_physics(config.SIMULATION_DT)
-
-        # 3Dモデルの位置・姿勢更新
-        visualizer.robot_node.setPos(robot.x, robot.y, 0.1)
-        visualizer.robot_node.setHpr(np.degrees(robot.theta) - 90.0, 0, 0)
-
-        # カメラ視点の更新
-        visualizer.update_camera(robot.x, robot.y, robot.theta)
-
-        # 仮想カメラ画像の取得 & /camera/image_raw パブリッシュ
-        img_bgr = visualizer.get_camera_image()
-        if img_bgr is not None:
-            try:
-                img_msg = bridge.cv2_to_imgmsg(img_bgr, encoding='bgr8')
-                img_msg.header.stamp = robot.get_clock().now().to_msg()
-                img_msg.header.frame_id = 'camera_link'
-                image_pub.publish(img_msg)
-            except Exception as
-
---- 📄 simulation/__init__.py ---
-"""Simulation package for ROS 2 course lap PoC."""
-
-
---- 📄 simulation/config.py ---
-import os
-
-# 【コース寸法パラメータ】
-SEGMENTS = [
-    {"id": "L1", "type": "straight", "length": 14.79},
-    {"id": "C1", "type": "arc",      "radius": 15.0, "angle_deg":  60, "direction": "left"},
-    {"id": "L2", "type": "straight", "length": 40.41},
-    {"id": "C2", "type": "arc",      "radius": 15.0, "angle_deg": 120, "direction": "left"},
-    {"id": "L3", "type": "straight", "length": 35.0},
-    {"id": "C3", "type": "arc",      "radius": 15.0, "angle_deg":  90, "direction": "left"},
-    {"id": "L4", "type": "straight", "length": 35.0},
-    {"id": "C4", "type": "arc",      "radius": 15.0, "angle_deg":  90, "direction": "left"},
-]
-
-# 【ロボットパラメータ】
-ROBOT_WHEEL_BASE = 0.8         # 左右輪間距離 [m]
-ROBOT_SPEED = 0.5              # 走行速度 [m/s]
-SIMULATION_DT = 0.05           # 時間刻み [s]（=20Hz相当）
-
-# 【コース幅パラメータ】
-COURSE_WIDTH = 7.0             # コース全幅 [m]（中心線から左右3.5mずつ）
-
-# 【描画パラメータ】
-FPS = 30                       # アニメーションフレームレート
-COURSE_LINE_COLOR = "black"
-COURSE_LINE_WIDTH = 2
-ROBOT_COLOR = "royalblue"
-ROBOT_ARROW_COLOR = "red"
-NODE_MARKER_COLOR = "orange"
-NODE_FONT_SIZE = 8
-
-# 路面テクスチャ色定数（今バージョン追加）
-ROAD_COLOR         = "black"      # 黒路面の塗り色
-ROAD_LINE_COLOR    = "white"      # 白線3本の色（外側・中心・内側）
-ROAD_LINE_WIDTH    = 2            # 白線の線幅 [pt]
-CENTER_LINE_STYLE  = "--"         # 中心白線は破線
-GRASS_COLOR        = "green"      # コース外の芝（背景色）
-
-# 境界線スムージングパラメータ（今バージョン追加）
-BOUNDARY_SMOOTH_WINDOW = 50   # 法線移動平均の窓幅 [点数]
-
-# 【ノード認識パラメータ】
-NODE_TRIGGER_DISTANCE = 0.5    # ノードとみなす距離閾値 [m]
-COURSE_CLOSE_TOLERANCE = 1.0   # コース閉じ判定許容距離 [m]
-
-# 【カメラシミュレータパラメータ】
-NOISE_STD = 0.05               # ガウスノイズ標準偏差
-
-# 【ログパラメータ】
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-LOG_DIR = os.path.join(BASE_DIR, "logs")
-LOG_FILENAME = "run_log.csv"
-
-
-
---- 📄 simulation/node_manager.py ---
-import os
-import csv
-import numpy as np
-from simulation import config
-
-NODE_SEQUENCE = [
-    "N01", "N02", "N03", "N04", "N05", "N06", "N07", "N08",
-    "N09", "N10", "N11", "N12", "N13", "N14", "N15", "N16"
-]
-
-class NodeManager:
-    def __init__(self, node_positions):
-        self.node_positions = node_positions
-        self.current_node_index = 1  # N02 (スタート地点)
-        self.visit_count = {node_id: 0 for node_id in NODE_SEQUENCE}
-        self.visit_count["N02"] = 1
-        self.history = ["N02"]
-
-    def update(self, robot_x, robot_y):
-        """
-        ロボットの現在位置から次のノードへの遷移を判定する（順序制約付き）。
-        """
-        next_index = (self.current_node_index + 1) % len(NODE_SEQUENCE)
-        next_node_id = NODE_SEQUENCE[next_index]
-        next_node_pos = self.node_positions[next_node_id]
-
-        dist = np.sqrt((robot_x - next_node_pos[0])**2 + (robot_y - next_node_pos[1])**2)
-
-        transitioned = False
-        if dist < config.NODE_TRIGGER_DISTANCE:
-            self.current_node_index = next_index
-            self.visit_count[next_node_id] += 1
-            self.history.append(next_node_id)
-            transitioned = True
-
-        current_id = NODE_SEQUENCE[self.current_node_index]
-        return {
-            "transitioned": transitioned,
-            "current_node": current_id,
-            "visit_count": self.visit_count[current_id]
-        }
-
-    def get_current_node_id(self):
-        return NODE_SEQUENCE[self.current_node_index]
-
-    def get_current_segment_id(self):
-        """
-        現在ノードIDから対応する区間ID (L1〜C4) を返す。
-        N01,N02,N03 -> L1
-        N03,N04,N05 -> C1
-        N05,N06,N07 -> L2
-        N07,N08,N09 -> C2
-        N09,N10,N11 -> L3
-        N11,N12,N13 -> C3
-        N13,N14,N15 -> L4
-        N15,N16,N01 -> C4
-        """
-        curr = self.get_current_node_id()
-        mapping = {
-            "N01": "L1", "N02": "L1",
-            "N03": "C1", "N04": "C1",
-            "N05": "L2", "N06": "L2",
-            "N07": "C2", "N08": "C2",
-            "N09": "L3", "
-
---- 📄 simulation/tests/test_node_manager.py ---
-import pytest
-from simulation.course import CourseGenerator
-from simulation.node_manager import NodeManager
-from simulation import config
-
-def test_sequential_transition():
-    cg = CourseGenerator(config.SEGMENTS)
-    node_positions = cg.generate_node_positions()
-    nm = NodeManager(node_positions)
-
-    # 初期ノードは N02
-    assert nm.get_current_node_id() == "N02"
-
-    # 次の N03 の座標にロボットを移動
-    pos_n03 = node_positions["N03"]
-    res = nm.update(pos_n03[0], pos_n03[1])
-
-    assert res["transitioned"] is True
-    assert nm.get_current_node_id() == "N03"
-
-def test_no_skip_transition():
-    cg = CourseGenerator(config.SEGMENTS)
-    node_positions = cg.generate_node_positions()
-    nm = NodeManager(node_positions)
-
-    assert nm.get_current_node_id() == "N02"
-
-    # N02 の次である N03 を飛ばして N04 に移動しても遷移しない
-    pos_n04 = node_positions["N04"]
-    res = nm.update(pos_n04[0], pos_n04[1])
-
-    assert res["transitioned"] is False
-    assert nm.get_current_node_id() == "N02"
-
-def test_lap_completion():
-    cg = CourseGenerator(config.SEGMENTS)
-    node_positions = cg.generate_node_positions()
-    nm = NodeManager(node_positions)
-
-    # N02 スタートから全ノードを順に移動
-    sequence = ["N03", "N04", "N05", "N06", "N07", "N08", "N09", "N10", "N11", "N12", "N13", "N14", "N15", "N16", "N01", "N02"]
-    for node_id in sequence:
-        pos = node_positions[node_id]
-        nm.update(pos[0], pos[1])
-
-    assert nm.is_lap_completed() is True
-
-
---- 📄 simulation/tests/__init__.py ---
-"""Simulation package tests."""
-
-
---- 📄 simulation/tests/test_course.py ---
-import pytest
-import numpy as np
-from simulation.course import CourseGenerator
-from simulation import config
-
-def test_course_is_closed():
-    cg = CourseGenerator(config.SEGMENTS)
-    points = cg.generate_course_points()
-    assert len(points) > 0
-    assert points.shape[1] == 2
-
-    start = points[0]
-    end = points[-1]
-    distance = np.linalg.norm(end - start)
-
-    assert distance < config.COURSE_CLOSE_TOLERANCE, (
-        f"コースが閉じていません: 始点-終点間距離 = {distance:.4f}m "
-        f"(許容値: {config.COURSE_CLOSE_TOLERANCE}m)\n"
-        f"始点: {start}, 終点: {end}"
-    )
-
-def test_node_count():
-    cg = CourseGenerator(config.SEGMENTS)
-    node_positions = cg.generate_node_positions()
-    assert len(node_positions) == 16
-    for i in range(1, 17):
-        node_id = f"N{i:02d}"
-        assert node_id in node_positions
-
-
---- 📄 simulation_base/course.py ---
-import numpy as np
-from simulation import config
-
-STEP_SIZE = 0.02  # [m] 刻み幅
-
-class CourseGenerator:
-    def __init__(self, segments=None):
-        self.segments = segments if segments is not None else config.SEGMENTS
-
-    def generate_course_points(self):
-        """
-        config.SEGMENTS に基づいてコース座標列 (N, 2) を生成する。
-        L1中心左端を原点 (0, 0) とする。
-        """
-        x, y = 0.0, 0.0
-        theta = 0.0  # [rad]
-
-        points = []
-
-        for seg in self.segments:
-            seg_type = seg["type"]
-
-            if seg_type == "straight":
-                length = seg["length"]
-                num_steps = int(np.ceil(length / STEP_SIZE))
-                actual_step = length / num_steps if num_steps > 0 else 0
-                dx = actual_step * np.cos(theta)
-                dy = actual_step * np.sin(theta)
-
-                for _ in range(num_steps):
-                    points.append([x, y])
-                    x += dx
-                    y += dy
-
-            elif seg_type == "arc":
-                radius = seg["radius"]
-                angle_deg = seg["angle_deg"]
-                angle_rad = np.radians(angle_deg)
-                direction = seg.get("direction", "right")
-
-                arc_length = radius * angle_rad
-                num_steps = int(np.ceil(arc_length / STEP_SIZE))
-                d_alpha = angle_rad / num_steps if num_steps > 0 else 0
-
-                if direction == "right":
-                    # 旋回中心: theta - pi/2 方向
-                    cx = x + radius * np.cos(theta - np.pi / 2.0)
-                    cy = y + radius * np.sin(theta - np.pi / 2.0)
-                    # 初期角度 (旋回中心から現在位置への角度)
-                    start_angle = np.arctan2(y - cy, x - cx)
-
-                    for step_i in range(num_steps):
-                        cur_a = start_angle - step_i * d_alpha
-                        px = cx + radius * np.cos(cur_a)
-                        py = cy + radius * np.sin(cur_a)
-                        points.append([px, py])
-
-                    # 終端
-
---- 📄 simulation_base/camera_simulator.py ---
-import numpy as np
-from simulation import config
-
-class CameraSimulator:
-    def __init__(self, seed=42):
-        if seed is not None:
-            np.random.seed(seed)
-
-    def get_features(self, current_segment_id, course_generator):
-        """
-        現在の区間IDとCourseGeneratorから仮想カメラ特徴量を生成する。
-        ガウスノイズを加算。
-        """
-        base_curvature = course_generator.get_segment_curvature(current_segment_id)
-
-        if base_curvature == 0.0:
-            asymmetry = 0.0
-            convergence = 1.0
-        else:
-            asymmetry = float(np.clip(base_curvature * 0.5, 0.0, 1.0))
-            convergence = float(np.clip(1.0 - base_curvature * 0.5, 0.0, 1.0))
-
-        noise_std = config.NOISE_STD
-        curvature_noise = np.random.normal(0, noise_std)
-        asymmetry_noise = np.random.normal(0, noise_std)
-        convergence_noise = np.random.normal(0, noise_std)
-
-        curvature_estimate = float(base_curvature + curvature_noise)
-        line_asymmetry = float(np.clip(asymmetry + asymmetry_noise, -1.0, 1.0))
-        line_convergence = float(np.clip(convergence + convergence_noise, 0.0, 1.0))
-
-        return {
-            "curvature": curvature_estimate,
-            "asymmetry": line_asymmetry,
-            "convergence": line_convergence
-        }
-
-
---- 📄 simulation_base/visualizer.py ---
-import numpy as np
-from direct.showbase.ShowBase import ShowBase
-from panda3d.core import (
-    CardMaker,
-    LineSegs,
-    NodePath,
-    GeomNode,
-    Geom,
-    GeomVertexFormat,
-    GeomVertexData,
-    GeomVertexWriter,
-    GeomTriangles,
-    Vec4
-)
-from simulation import config
-
-class Visualizer(ShowBase):
-    def __init__(self, course_points, node_positions, left_boundary, right_boundary):
-        ShowBase.__init__(self)
-        self.course_points = course_points
-        self.node_positions = node_positions
-        self.left_boundary = left_boundary
-        self.right_boundary = right_boundary
-
-        # 背景色（空）を「水色（スカイブルー）」に設定
-        self.setBackgroundColor(0.53, 0.81, 0.92, 1.0)
-
-        # 3Dオブジェクトの構築
-        self._build_ground_polygon()
-        self._build_road_polygon()
-        self._build_road_lines()
-        self._build_robot_model()
-        self._build_node_markers()
-
-        # コース全景のBounding Box (AABB) から中心座標 (cx, cy) を算出
-        pts = np.array(self.course_points)
-        min_x, max_x = np.min(pts[:, 0]), np.max(pts[:, 0])
-        min_y, max_y = np.min(pts[:, 1]), np.max(pts[:, 1])
-        self.map_center_x = (min_x + max_x) / 2.0
-        self.map_center_y = (min_y + max_y) / 2.0
-
-        # マルチウィンドウ（監視マップ固定カメラ用サブウィンドウ）の構築
-        self.sub_win = self.openWindow(name="Top View Window", requireWindow=True)
-        self.sub_cam = self.makeCamera(self.sub_win)
-        self.sub_cam.reparentTo(self.render)
-        # コース全体の中央上空 (Z=150.0m) に固定配置
-        self.sub_cam.setPos(self.map_center_x, self.map_center_y, 150.0)
-        self.sub_cam.setHpr(0, -90, 0)
-
-    def _build_ground_polygon(self):
-        """茶色の広大な大地 (Z=-0.02) と、コース沿い4mの緑の芝生 (Z=-0.01) を生成"""
-        
-        # 1. 茶色の広大な大地（ベース）
-        cm = CardMaker('ground_plane')
-        cm.setFrame(-500, 500, -500, 500)
-        ground = self.render.attachNewNode(cm.generate())
-        ground.setHpr(0, -90, 0)
-        ground.setPos(0, 0, -0.02)
-        ground.setColor(0.55, 0.27, 0.07, 1.0)  # 大地色（サドルブラウン）
-
-       
-
---- 📄 simulation_base/robot.py ---
-import numpy as np
-from simulation import config
-
-class DifferentialDriveRobot:
-    def __init__(self, start_x, start_y, start_theta=0.0):
-        self.x = float(start_x)
-        self.y = float(start_y)
-        self.theta = float(start_theta)
-        self.speed = float(config.ROBOT_SPEED)
-        self.odom_distance = 0.0
-
-    def update_along_course(self, course_points, step_index):
-        """
-        コース座標列全体 + 現在のステップインデックスから状態量を更新する。
-        """
-        if step_index < len(course_points) - 1:
-            next_pt = course_points[step_index + 1]
-            dx = next_pt[0] - self.x
-            dy = next_pt[1] - self.y
-            self.x = float(next_pt[0])
-            self.y = float(next_pt[1])
-            self.theta = float(np.arctan2(dy, dx))
-            self.odom_distance += float(np.sqrt(dx**2 + dy**2))
-        elif step_index == len(course_points) - 1:
-            # 最終ステップの場合は現在位置維持
-            pass
-
-    def inject_slip(self, slip_distance):
-        """
-        将来拡張用: odom_distance に slip_distance を加算（スリップ誤差シミュレート）
-        """
-        self.odom_distance += float(slip_distance)
-
-    def get_state(self):
-        return {
-            "x": self.x,
-            "y": self.y,
-            "theta": self.theta,
-            "odom": self.odom_distance
-        }
-
-    @property
-    def position(self):
-        return (self.x, self.y)
-
-
---- 📄 simulation_base/main.py ---
-import os
-import sys
-import numpy as np
-from simulation.course import CourseGenerator
-from simulation.robot import DifferentialDriveRobot
-from simulation.node_manager import NodeManager
-from simulation.camera_simulator import CameraSimulator
-from simulation.visualizer import Visualizer
-from simulation import config
-
-def main():
-    # Step 2: コース生成
-    cg = CourseGenerator(config.SEGMENTS)
-    course_points = cg.generate_course_points()
-    node_positions = cg.generate_node_positions()
-    left_boundary, right_boundary = cg.generate_boundary_points(course_points)
-
-    # Step 3: 各モジュール初期化
-    start_pos = node_positions["N02"]  # スタート地点 (L1中心)
-    robot = DifferentialDriveRobot(start_pos[0], start_pos[1], start_theta=0.0)
-    node_manager = NodeManager(node_positions)
-    camera_sim = CameraSimulator(seed=42)
-    visualizer = Visualizer(course_points, node_positions, left_boundary, right_boundary)
-
-    # 状態変数の初期化
-    frame_index = 0
-    total_frames = len(course_points) - 1
-    lap_logged = False
-
-    # Step 4: Panda3D用更新タスクの定義
-    def simulation_task(task):
-        nonlocal frame_index, lap_logged
-
-        # アニメーション終端に達したら、終了させずにインデックスをリセットする
-        if frame_index >= total_frames:
-            print("[INFO] Lap finished. Restarting for infinite loop...")
-            frame_index = 0  # フレームインデックスを初期化して再スタート
-
-        # ロボット・自己位置状態の更新
-        robot.update_along_course(course_points, frame_index)
-        node_result = node_manager.update(robot.x, robot.y)
-        segment_id = node_manager.get_current_segment_id()
-        features = camera_sim.get_features(segment_id, cg)
-
-        # 3Dモデルの位置・姿勢更新
-        visualizer.robot_node.setPos(robot.x, robot.y, 0.1)
-        # Headingの更新（Panda3D基準: H = theta_deg - 90）
-        visualizer.robot_node.setHpr(np.degrees(robot.theta) - 90.0, 0, 0)
-
-        # カメラ視点の更新
-        visualizer.update_camera(robot.x, robot.y, robot.theta)
-
-        # ラップ完了判定
-        if node_manager.is_lap_completed() and not lap_logged:
-            log_path = os.path
-
---- 📄 simulation_base/__init__.py ---
-"""Simulation package for ROS 2 course lap PoC."""
-
-
---- 📄 simulation_base/config.py ---
-import os
-
-# 【コース寸法パラメータ】
-SEGMENTS = [
-    {"id": "L1", "type": "straight", "length": 14.79},
-    {"id": "C1", "type": "arc",      "radius": 15.0, "angle_deg":  60, "direction": "left"},
-    {"id": "L2", "type": "straight", "length": 40.41},
-    {"id": "C2", "type": "arc",      "radius": 15.0, "angle_deg": 120, "direction": "left"},
-    {"id": "L3", "type": "straight", "length": 35.0},
-    {"id": "C3", "type": "arc",      "radius": 15.0, "angle_deg":  90, "direction": "left"},
-    {"id": "L4", "type": "straight", "length": 35.0},
-    {"id": "C4", "type": "arc",      "radius": 15.0, "angle_deg":  90, "direction": "left"},
-]
-
-# 【ロボットパラメータ】
-ROBOT_WHEEL_BASE = 0.8         # 左右輪間距離 [m]
-ROBOT_SPEED = 0.5              # 走行速度 [m/s]
-SIMULATION_DT = 0.05           # 時間刻み [s]（=20Hz相当）
-
-# 【コース幅パラメータ】
-COURSE_WIDTH = 7.0             # コース全幅 [m]（中心線から左右3.5mずつ）
-
-# 【描画パラメータ】
-FPS = 30                       # アニメーションフレームレート
-COURSE_LINE_COLOR = "black"
-COURSE_LINE_WIDTH = 2
-ROBOT_COLOR = "royalblue"
-ROBOT_ARROW_COLOR = "red"
-NODE_MARKER_COLOR = "orange"
-NODE_FONT_SIZE = 8
-
-# 路面テクスチャ色定数（今バージョン追加）
-ROAD_COLOR         = "black"      # 黒路面の塗り色
-ROAD_LINE_COLOR    = "white"      # 白線3本の色（外側・中心・内側）
-ROAD_LINE_WIDTH    = 2            # 白線の線幅 [pt]
-CENTER_LINE_STYLE  = "--"         # 中心白線は破線
-GRASS_COLOR        = "green"      # コース外の芝（背景色）
-
-# 境界線スムージングパラメータ（今バージョン追加）
-BOUNDARY_SMOOTH_WINDOW = 50   # 法線移動平均の窓幅 [点数]
-
-# 【ノード認識パラメータ】
-NODE_TRIGGER_DISTANCE = 0.5    # ノードとみなす距離閾値 [m]
-COURSE_CLOSE_TOLERANCE = 1.0   # コース閉じ判定許容距離 [m]
-
-# 【カメラシミュレータパラメータ】
-NOISE_STD = 0.05               # ガウスノイズ標準偏差
-
-# 【ログパラメータ】
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-LOG_DIR = os.path.join(BASE_DIR, "logs")
-LOG_FILENAME = "run_log.csv"
-
-
-
---- 📄 simulation_base/node_manager.py ---
-import os
-import csv
-import numpy as np
-from simulation import config
-
-NODE_SEQUENCE = [
-    "N01", "N02", "N03", "N04", "N05", "N06", "N07", "N08",
-    "N09", "N10", "N11", "N12", "N13", "N14", "N15", "N16"
-]
-
-class NodeManager:
-    def __init__(self, node_positions):
-        self.node_positions = node_positions
-        self.current_node_index = 1  # N02 (スタート地点)
-        self.visit_count = {node_id: 0 for node_id in NODE_SEQUENCE}
-        self.visit_count["N02"] = 1
-        self.history = ["N02"]
-
-    def update(self, robot_x, robot_y):
-        """
-        ロボットの現在位置から次のノードへの遷移を判定する（順序制約付き）。
-        """
-        next_index = (self.current_node_index + 1) % len(NODE_SEQUENCE)
-        next_node_id = NODE_SEQUENCE[next_index]
-        next_node_pos = self.node_positions[next_node_id]
-
-        dist = np.sqrt((robot_x - next_node_pos[0])**2 + (robot_y - next_node_pos[1])**2)
-
-        transitioned = False
-        if dist < config.NODE_TRIGGER_DISTANCE:
-            self.current_node_index = next_index
-            self.visit_count[next_node_id] += 1
-            self.history.append(next_node_id)
-            transitioned = True
-
-        current_id = NODE_SEQUENCE[self.current_node_index]
-        return {
-            "transitioned": transitioned,
-            "current_node": current_id,
-            "visit_count": self.visit_count[current_id]
-        }
-
-    def get_current_node_id(self):
-        return NODE_SEQUENCE[self.current_node_index]
-
-    def get_current_segment_id(self):
-        """
-        現在ノードIDから対応する区間ID (L1〜C4) を返す。
-        N01,N02,N03 -> L1
-        N03,N04,N05 -> C1
-        N05,N06,N07 -> L2
-        N07,N08,N09 -> C2
-        N09,N10,N11 -> L3
-        N11,N12,N13 -> C3
-        N13,N14,N15 -> L4
-        N15,N16,N01 -> C4
-        """
-        curr = self.get_current_node_id()
-        mapping = {
-            "N01": "L1", "N02": "L1",
-            "N03": "C1", "N04": "C1",
-            "N05": "L2", "N06": "L2",
-            "N07": "C2", "N08": "C2",
-            "N09": "L3", "
-
---- 📄 simulation_base/tests/test_node_manager.py ---
-import pytest
-from simulation.course import CourseGenerator
-from simulation.node_manager import NodeManager
-from simulation import config
-
-def test_sequential_transition():
-    cg = CourseGenerator(config.SEGMENTS)
-    node_positions = cg.generate_node_positions()
-    nm = NodeManager(node_positions)
-
-    # 初期ノードは N02
-    assert nm.get_current_node_id() == "N02"
-
-    # 次の N03 の座標にロボットを移動
-    pos_n03 = node_positions["N03"]
-    res = nm.update(pos_n03[0], pos_n03[1])
-
-    assert res["transitioned"] is True
-    assert nm.get_current_node_id() == "N03"
-
-def test_no_skip_transition():
-    cg = CourseGenerator(config.SEGMENTS)
-    node_positions = cg.generate_node_positions()
-    nm = NodeManager(node_positions)
-
-    assert nm.get_current_node_id() == "N02"
-
-    # N02 の次である N03 を飛ばして N04 に移動しても遷移しない
-    pos_n04 = node_positions["N04"]
-    res = nm.update(pos_n04[0], pos_n04[1])
-
-    assert res["transitioned"] is False
-    assert nm.get_current_node_id() == "N02"
-
-def test_lap_completion():
-    cg = CourseGenerator(config.SEGMENTS)
-    node_positions = cg.generate_node_positions()
-    nm = NodeManager(node_positions)
-
-    # N02 スタートから全ノードを順に移動
-    sequence = ["N03", "N04", "N05", "N06", "N07", "N08", "N09", "N10", "N11", "N12", "N13", "N14", "N15", "N16", "N01", "N02"]
-    for node_id in sequence:
-        pos = node_positions[node_id]
-        nm.update(pos[0], pos[1])
-
-    assert nm.is_lap_completed() is True
-
-
---- 📄 simulation_base/tests/__init__.py ---
-"""Simulation package tests."""
-
-
---- 📄 simulation_base/tests/test_course.py ---
-import pytest
-import numpy as np
-from simulation.course import CourseGenerator
-from simulation import config
-
-def test_course_is_closed():
-    cg = CourseGenerator(config.SEGMENTS)
-    points = cg.generate_course_points()
-    assert len(points) > 0
-    assert points.shape[1] == 2
-
-    start = points[0]
-    end = points[-1]
-    distance = np.linalg.norm(end - start)
-
-    assert distance < config.COURSE_CLOSE_TOLERANCE, (
-        f"コースが閉じていません: 始点-終点間距離 = {distance:.4f}m "
-        f"(許容値: {config.COURSE_CLOSE_TOLERANCE}m)\n"
-        f"始点: {start}, 終点: {end}"
-    )
-
-def test_node_count():
-    cg = CourseGenerator(config.SEGMENTS)
-    node_positions = cg.generate_node_positions()
-    assert len(node_positions) == 16
-    for i in range(1, 17):
-        node_id = f"N{i:02d}"
-        assert node_id in node_positions
-
-
-【社長からの修正・改善要望】:
-よろしい
-assistant: ご承認ありがとうございます。
-それでは、方針に沿って『course_lap_node.py』の修正仕様を開発チームへ連携し、実装を進めます。
-
-以下が今回の具体的な修正・改修ロジックの要点です。
-
-### 📁 修正対象ファイル
-`raphael_enterprise/raphael_enterprise/course_lap_node.py`
-
-### 🛠 修正ロジックの要点
-**1. 定数の見直し**
-*   `SCAN_Y_FAR_STEER_RATIO` を `0.55` から `0.60` へ変更します。
-*   加重平均に使用していた定数（`WEIGHT_NEAR`, `WEIGHT_MID`, `WEIGHT_FAR`）は不要となるため削除します。
-
-**2. 2次関数近似（曲線のフィッティング）の導入**
-*   画像コールバック内で算出された3点のデータセットを用意します。
-    *   Y座標（画像の高さ位置）: `y_near`, `y_mid`, `y_far`
-    *   X座標（黒色路面の重心）: `center_near_x`, `center_mid_x`, `center_far_x`
-*   `numpy.polyfit(Y配列, X配列, 2)` を使用し、「YからXを導き出す2次関数（$X = aY^2 + bY + c$）」の係数を算出します。
-
-**3. 目標軌道（target_x）の逆算と追従**
-*   生成した2次関数に、追従の基準としたいY座標（例: 先読みと中間の中間地点など）を代入し、滑らかな曲線上の理想的な `target_x` を算出します。
-*   従来通り、画面中央と `target_x` のズレを `error` としてPID制御へ渡し、ステアリング（角速度）を決定します。
-
-このロジックにより、点がガタついても「滑らかな曲線」に補正されるため、より実車に近い滑らかなステアリング挙動が実現できます。開発チームにこの仕様で実装を指示いたします。
+カーブをスキャンラインじゃなくて黒路面の形状から判断するのはどう？
+assistant: 社長、素晴らしい着眼点です。
+単一のスキャンライン（Y=0.55）の重心だけで判断するよりも、抽出した「路面全体の形状」からカーブを予測する方が、ノイズに強くより人間の感覚に近い先読みが可能になります。
+
+現在の設計では、すでに「足元から遠方にかけての4点（0.90, 0.80, 0.70, 0.60）」を抽出し、**2次関数（Polyfit）で路面の曲線を近似**しています。この既存の処理を活かして形状を判断する、以下の3つの修正アプローチを提案します。
+
+### 【修正方針の選択肢】
+
+*   **案A：Polyfitの「曲がり具合（2次係数）」を利用する（推奨）**
+    すでに計算している2次近似曲線（$X = aY^2 + bY + c$）の **係数 `a`（曲率）** や **係数 `b`（傾き）** の絶対値の大きさを評価します。曲線が一定以上曲がっていれば「カーブ」と判定します。
+    *   **メリット:** 追加の画像処理コストがゼロで、既存のノイズ除去（連続トラッキング）の恩恵をそのまま受けられます。
+*   **案B：トラッキングした4点の「横ズレ幅」を利用する**
+    足元から遠方にかけて抽出した4つの中心座標（X座標）のうち、「最大値と最小値の差分（横幅のズレ）」を計算します。ズレが画面幅の一定割合（例：15%）を超えたらカーブと判定します。
+    *   **メリット:** 計算が非常にシンプルで直感的です。
+*   **案C：黒色領域全体の「輪郭（Contour）」を解析する**
+    OpenCVの機能（`findContours`等）を使い、画面内の黒色（路面）ブロック全体の輪郭形状や傾きを直接解析してカーブを判定します。
+    *   **懸念点:** 画面奥の影やノイズを拾ってしまうリスクが復活するため、精度を保つためのフィルタリング処理が追加で必要になります。
+
+---
+私としては、既存の堅牢なトラッキング結果をそのまま活用できる **案A** または **案B** が最もスマートで確実だと考えますが、社長はどのアプローチがイメージに近いでしょうか？

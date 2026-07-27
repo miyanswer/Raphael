@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ビジュアルレーシングナビゲーションノード (course_lap_visual_racing_v1)
+ビジュアルレーシングナビゲーションノード (course_lap_node)
 ===========================================================
-オドメトリ依存の区間管理を完全廃止し、カメラ画像情報のみで以下を実現：
-1. 黒色路面の重心に基づくビジュアルサーボ（センタリング制御）
-2. 画像上部の形状・白線検知によるカーブ先読みとステート切り替え
-3. アウト・イン・アウト軌道のための動的目標オフセット設定
-4. スローイン・ファストアウトのための動的走行速度制御
-5. 画面下部の緑色（芝生）ピクセル超過による緊急停止（安全機構）
+カメラ画像のみを入力として受け取り、以下の制御を実行：
+1. 連続トラッキング(ROI±150px) ＆ 最大ブロック抽出による堅牢な4点(0.90, 0.80, 0.70, 0.60)2次関数近似(Polyfit)軌道追従
+2. 0.55スキャンラインの路面重心オフセット(15%)による高速レスポンスカーブ先読みと速度制御
+3. 画面下部(85%〜100%)の緑色(芝生)割合チェックによる緊急停止機構
 """
 
 import math
@@ -23,19 +21,24 @@ from cv_bridge import CvBridge
 import cv2
 
 # ─────────────────────────────────────────
-#  4本スキャンライン制御パラメータ (2次関数近似 Polyfit Pure Pursuit)
+#  制御パラメータ (連続トラッキング 4点 Polyfit Pure Pursuit & 高速カーブ検知)
 # ─────────────────────────────────────────
-SCAN_Y_CURVE_RATIO      = 0.50     # 最上段: カーブ検知・速度制御専用 (0.50)
-SCAN_Y_FAR_STEER_RATIO  = 0.60     # 上段: 先読みライン (0.60)
-SCAN_Y_MID_STEER_RATIO  = 0.65     # 中段: 中間補間ライン (0.65)
-SCAN_Y_NEAR_STEER_RATIO = 0.75     # 下段: 近景基準ライン (0.75)
-TRACKING_TARGET_Y_RATIO = 0.625    # 2次曲線評価・追従目標Y位置 (0.625)
+SCAN_Y_CURVE_RATIO          = 0.55     # 最上段: カーブ検知専用 (0.55)
+CURVE_OFFSET_THRESHOLD_RATIO= 0.15     # カーブ検知オフセット閾値 (画面幅の15%)
+
+SCAN_Y_FAR_STEER_RATIO      = 0.60     # 遠方スキャンライン (0.60)
+SCAN_Y_MID_STEER_RATIO      = 0.70     # 中間スキャンライン (0.70)
+SCAN_Y_NEAR_STEER_RATIO     = 0.80     # 近景スキャンライン (0.80)
+SCAN_Y_BOTTOM_STEER_RATIO   = 0.90     # 足元スキャンライン (0.90)
+
+TRACKING_ROI_WIDTH          = 150      # 連続トラッキング探索領域 (±150px)
+TRACKING_TARGET_Y_RATIO     = 0.625    # 2次曲線評価・追従目標Y位置 (0.625)
 
 # ─────────────────────────────────────────
 #  レーシング制御パラメータ
 # ─────────────────────────────────────────
-SPEED_FAST          = 0.6      # 直線走行速度（ファストアウト） [m/s]
-SPEED_SLOW          = 0.25     # カーブ旋回速度（スローイン） [m/s]
+SPEED_FAST          = 2.78      # 直線走行速度（ファストアウト） [m/s]
+SPEED_SLOW          = 1.39     # カーブ旋回速度（スローイン） [m/s]
 STEER_KP            = 0.005    # ステアリング 比例ゲイン
 STEER_KD            = 0.004    # ステアリング 微分ゲイン (ダンパー効果強化)
 
@@ -62,7 +65,7 @@ class State:
 
 
 class CourseLapNode(Node):
-    """2次関数近似(Polyfit)軌道追従ビジュアルレーシングナビゲーション"""
+    """連続トラッキング＆最大ブロック抽出 4点 Polyfit 2次曲線Pure Pursuitビジュアルレーシングノード"""
 
     def __init__(self):
         super().__init__('course_lap_node')
@@ -90,7 +93,7 @@ class CourseLapNode(Node):
 
         self.create_subscription(Image, '/camera/image_raw', self._cb_camera, sensor_qos)
 
-        self.get_logger().info('🏎️ [CourseLapNode] Polyfit 2次曲線Pure Pursuitビジュアルレーシングノード起動。')
+        self.get_logger().info('🏎️ [CourseLapNode] 連続トラッキング4点Polyfit軌道追従ノード起動。')
         self._transition(State.STRAIGHT)
 
     def _transition(self, next_state: str):
@@ -99,8 +102,34 @@ class CourseLapNode(Node):
             self.get_logger().info(f' State: {self.state} → {next_state}')
             self.state = next_state
 
+    def _get_largest_block_center(self, mask_line: np.ndarray, start_x: float, end_x: float, w: int) -> float:
+        """
+        1次元マスク (mask_line) の [start_x, end_x] の範囲内で、
+        True (黒色路面ピクセル) が最も長く連続している塊（最大ブロック）の中心X座標を算出する。
+        """
+        sx = int(np.clip(start_x, 0, w - 1))
+        ex = int(np.clip(end_x, 0, w - 1))
+        if sx > ex:
+            sx, ex = ex, sx
+
+        sub_mask = mask_line[sx : ex + 1]
+        if not np.any(sub_mask):
+            return (sx + ex) / 2.0
+
+        diff = np.diff(np.concatenate(([0], sub_mask.astype(np.int8), [0])))
+        starts = np.where(diff == 1)[0]
+        ends = np.where(diff == -1)[0]
+
+        lengths = ends - starts
+        max_idx = np.argmax(lengths)
+
+        block_start = sx + starts[max_idx]
+        block_end = sx + ends[max_idx] - 1
+
+        return (block_start + block_end) / 2.0
+
     def _cb_camera(self, msg: Image):
-        """Polyfit 2次関数近似画像処理 & 高精度軌道追従ビジュアルサーボ制御"""
+        """連続トラッキング＆最大ブロック抽出 4点Polyfitビジュアルサーボ制御"""
         try:
             frame = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
         except Exception as e:
@@ -129,7 +158,7 @@ class CourseLapNode(Node):
                 self._transition(State.EMERGENCY)
                 self._stop()
                 self.is_emergency_stopped = True
-                self._publish_debug(frame, h, w, 0, 0, 0, 0, 0, 0, 0, 0, green_ratio, True)
+                self._publish_debug(frame, h, w, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, np.array([0.0, 0.0, 0.0]), green_ratio, True)
             return
 
         if self.state == State.EMERGENCY and green_ratio <= EMERGENCY_GREEN_RATIO:
@@ -137,7 +166,7 @@ class CourseLapNode(Node):
             self.is_emergency_stopped = False
 
         # ─────────────────────────────────────────
-        # 2. [最上段スキャンライン: カーブ事前検知 & 速度制御] Y = h * 0.50
+        # 2. [最上段スキャンライン: 高速レスポンス・カーブ検知] Y = h * 0.55
         # ─────────────────────────────────────────
         y_curve = int(h * SCAN_Y_CURVE_RATIO)
         curve_line = v_channel[y_curve, :]
@@ -146,10 +175,9 @@ class CourseLapNode(Node):
         is_curve_detected = False
         if len(black_curve_indices) > 0:
             c_min_x, c_max_x = black_curve_indices[0], black_curve_indices[-1]
-            c_width = c_max_x - c_min_x
             c_center = (c_min_x + c_max_x) / 2.0
-            # 道幅が極端に狭まる、または中心が中央から大きくブレている場合はカーブと判定
-            if c_width < (w * 0.4) or abs(c_center - (w / 2.0)) > (w * 0.12):
+            offset = abs(c_center - (w / 2.0))
+            if offset > (w * CURVE_OFFSET_THRESHOLD_RATIO):
                 is_curve_detected = True
         else:
             is_curve_detected = True
@@ -166,53 +194,49 @@ class CourseLapNode(Node):
             target_speed = SPEED_FAST
 
         # ─────────────────────────────────────────
-        # 3. [Polyfit 2次関数近似: 下段3ライン重心抽出 (0.75, 0.65, 0.60)]
+        # 3. [連続トラッキング ＆ 最大ブロック抽出: 下から上へ連鎖探索 (0.90 -> 0.80 -> 0.70 -> 0.60)]
         # ─────────────────────────────────────────
-        # ① 近景ライン (Y: 0.75)
+        # ① 足元ライン (Y: 0.90) — 探索範囲: 全幅 [0, w-1]
+        y_bottom = int(h * SCAN_Y_BOTTOM_STEER_RATIO)
+        bottom_mask = (v_channel[y_bottom, :] <= BLACK_V_MAX)
+        center_bottom_x = self._get_largest_block_center(bottom_mask, 0, w - 1, w)
+
+        # ② 近景ライン (Y: 0.80) — 探索範囲: center_bottom_x ± 150px
         y_near = int(h * SCAN_Y_NEAR_STEER_RATIO)
-        near_line = v_channel[y_near, :]
-        black_near_indices = np.where(near_line <= BLACK_V_MAX)[0]
-        if len(black_near_indices) > 0:
-            n_min_x, n_max_x = black_near_indices[0], black_near_indices[-1]
-            center_near_x = (n_min_x + n_max_x) / 2.0
-        else:
-            center_near_x = w / 2.0
+        near_mask = (v_channel[y_near, :] <= BLACK_V_MAX)
+        center_near_x = self._get_largest_block_center(
+            near_mask, center_bottom_x - TRACKING_ROI_WIDTH, center_bottom_x + TRACKING_ROI_WIDTH, w
+        )
 
-        # ② 中間ライン (Y: 0.65)
+        # ③ 中間ライン (Y: 0.70) — 探索範囲: center_near_x ± 150px
         y_mid = int(h * SCAN_Y_MID_STEER_RATIO)
-        mid_line = v_channel[y_mid, :]
-        black_mid_indices = np.where(mid_line <= BLACK_V_MAX)[0]
-        if len(black_mid_indices) > 0:
-            m_min_x, m_max_x = black_mid_indices[0], black_mid_indices[-1]
-            center_mid_x = (m_min_x + m_max_x) / 2.0
-        else:
-            center_mid_x = w / 2.0
+        mid_mask = (v_channel[y_mid, :] <= BLACK_V_MAX)
+        center_mid_x = self._get_largest_block_center(
+            mid_mask, center_near_x - TRACKING_ROI_WIDTH, center_near_x + TRACKING_ROI_WIDTH, w
+        )
 
-        # ③ 先読みライン (Y: 0.60)
+        # ④ 遠方ライン (Y: 0.60) — 探索範囲: center_mid_x ± 150px
         y_far = int(h * SCAN_Y_FAR_STEER_RATIO)
-        far_line = v_channel[y_far, :]
-        black_far_indices = np.where(far_line <= BLACK_V_MAX)[0]
-        if len(black_far_indices) > 0:
-            f_min_x, f_max_x = black_far_indices[0], black_far_indices[-1]
-            center_far_x = (f_min_x + f_max_x) / 2.0
-        else:
-            center_far_x = w / 2.0
+        far_mask = (v_channel[y_far, :] <= BLACK_V_MAX)
+        center_far_x = self._get_largest_block_center(
+            far_mask, center_mid_x - TRACKING_ROI_WIDTH, center_mid_x + TRACKING_ROI_WIDTH, w
+        )
 
-        # ④ np.polyfit による 2次曲線フィッティング (X = a*Y^2 + b*Y + c)
-        Y_array = np.array([float(y_near), float(y_mid), float(y_far)])
-        X_array = np.array([float(center_near_x), float(center_mid_x), float(center_far_x)])
+        # ⑤ np.polyfit による 4点2次曲線フィッティング (X = a*Y^2 + b*Y + c)
+        Y_array = np.array([float(y_bottom), float(y_near), float(y_mid), float(y_far)])
+        X_array = np.array([float(center_bottom_x), float(center_near_x), float(center_mid_x), float(center_far_x)])
 
         try:
             poly_coeffs = np.polyfit(Y_array, X_array, 2)  # [a, b, c]
         except Exception:
             poly_coeffs = np.array([0.0, 0.0, float(center_near_x)])
 
-        # ⑤ 追従目標Y位置 (Y = h * 0.625) での理想の目標X座標を評価
+        # ⑥ 追従目標Y位置 (Y = h * 0.625) での理想の目標X座標を評価
         y_ref = float(h * TRACKING_TARGET_Y_RATIO)
         target_x = (poly_coeffs[0] * (y_ref ** 2)) + (poly_coeffs[1] * y_ref) + poly_coeffs[2]
 
         # ─────────────────────────────────────────
-        # 4. [超軽量Polyfit 1次元PID誤差計算 & 操舵]
+        # 4. [1次元PID誤差計算 & 操舵]
         # 画面中央 (center_x = w / 2.0) と Polyfit 評価目標 (target_x) の誤差
         # ─────────────────────────────────────────
         center_x = w / 2.0
@@ -226,7 +250,7 @@ class CourseLapNode(Node):
         # デバッグログ出力
         self.get_logger().info(
             f"🚦 State: {self.state:<9} | "
-            f"PolyTargetX: {target_x:>5.1f} (近:{center_near_x:.1f}, 中:{center_mid_x:.1f}, 遠:{center_far_x:.1f}) | "
+            f"PolyTargetX: {target_x:>5.1f} (足:{center_bottom_x:.1f}, 近:{center_near_x:.1f}, 中:{center_mid_x:.1f}, 遠:{center_far_x:.1f}) | "
             f"誤差 Error: {error:>6.1f} | "
             f"出力 v: {target_speed:.2f}, w: {angular_z:.3f}"
         )
@@ -238,12 +262,12 @@ class CourseLapNode(Node):
         self.cmd_pub.publish(twist)
 
         # デバッグ画面出力
-        self._publish_debug(frame, h, w, y_near, y_mid, y_far, y_curve, y_ref, center_near_x, center_mid_x, center_far_x, target_x, poly_coeffs, green_ratio, False)
+        self._publish_debug(frame, h, w, y_bottom, y_near, y_mid, y_far, y_curve, y_ref, center_bottom_x, center_near_x, center_mid_x, center_far_x, target_x, poly_coeffs, green_ratio, False)
 
     def _stop(self):
         self.cmd_pub.publish(Twist())
 
-    def _publish_debug(self, frame, h, w, y_near, y_mid, y_far, y_curve, y_ref, center_near_x, center_mid_x, center_far_x, target_x, poly_coeffs, green_ratio, emergency):
+    def _publish_debug(self, frame, h, w, y_bottom, y_near, y_mid, y_far, y_curve, y_ref, center_bottom_x, center_near_x, center_mid_x, center_far_x, target_x, poly_coeffs, green_ratio, emergency):
         if not self.debug_view:
             return
 
@@ -254,44 +278,64 @@ class CourseLapNode(Node):
         cv2.putText(dbg, "SAFETY ROI (GREEN)", (10, h - 10),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
 
-        # ② 最上段: カーブ検知スキャンライン (紫横線 0.50)
+        # ② 最上段: カーブ検知スキャンライン (紫横線 0.55)
         cv2.line(dbg, (0, y_curve), (w, y_curve), (255, 0, 255), 2)
-        cv2.putText(dbg, "CURVE SCANLINE (50%)", (10, y_curve - 5),
+        cv2.putText(dbg, "CURVE SCANLINE (55%)", (10, y_curve - 5),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 255), 1)
 
-        # ③ 上段: 先読みスキャンライン (青色横線 0.60)
+        # ③ 遠方スキャンライン (青色横線 0.60)
         cv2.line(dbg, (0, y_far), (w, y_far), (255, 0, 0), 2)
         cv2.putText(dbg, "FAR SCANLINE (60%)", (10, y_far - 5),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1)
+        # 探索領域ROIの視覚化 (青色括弧)
+        far_sx = int(np.clip(center_mid_x - TRACKING_ROI_WIDTH, 0, w - 1))
+        far_ex = int(np.clip(center_mid_x + TRACKING_ROI_WIDTH, 0, w - 1))
+        cv2.line(dbg, (far_sx, y_far - 8), (far_sx, y_far + 8), (255, 0, 0), 2)
+        cv2.line(dbg, (far_ex, y_far - 8), (far_ex, y_far + 8), (255, 0, 0), 2)
 
-        # ④ 中段: 中間補間スキャンライン (水色横線 0.65)
+        # ④ 中間スキャンライン (水色横線 0.70)
         cv2.line(dbg, (0, y_mid), (w, y_mid), (255, 255, 0), 2)
-        cv2.putText(dbg, "MID SCANLINE (65%)", (10, y_mid - 5),
+        cv2.putText(dbg, "MID SCANLINE (70%)", (10, y_mid - 5),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1)
+        mid_sx = int(np.clip(center_near_x - TRACKING_ROI_WIDTH, 0, w - 1))
+        mid_ex = int(np.clip(center_near_x + TRACKING_ROI_WIDTH, 0, w - 1))
+        cv2.line(dbg, (mid_sx, y_mid - 8), (mid_sx, y_mid + 8), (255, 255, 0), 2)
+        cv2.line(dbg, (mid_ex, y_mid - 8), (mid_ex, y_mid + 8), (255, 255, 0), 2)
 
-        # ⑤ 下段: 近景基準スキャンライン (黄色横線 0.75)
+        # ⑤ 近景スキャンライン (黄色横線 0.80)
         cv2.line(dbg, (0, y_near), (w, y_near), (0, 255, 255), 2)
-        cv2.putText(dbg, "NEAR SCANLINE (75%)", (10, y_near - 5),
+        cv2.putText(dbg, "NEAR SCANLINE (80%)", (10, y_near - 5),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
+        near_sx = int(np.clip(center_bottom_x - TRACKING_ROI_WIDTH, 0, w - 1))
+        near_ex = int(np.clip(center_bottom_x + TRACKING_ROI_WIDTH, 0, w - 1))
+        cv2.line(dbg, (near_sx, y_near - 8), (near_sx, y_near + 8), (0, 255, 255), 2)
+        cv2.line(dbg, (near_ex, y_near - 8), (near_ex, y_near + 8), (0, 255, 255), 2)
+
+        # ⑥ 足元スキャンライン (緑色横線 0.90)
+        cv2.line(dbg, (0, y_bottom), (w, y_bottom), (0, 255, 0), 2)
+        cv2.putText(dbg, "BOTTOM SCANLINE (90%)", (10, y_bottom - 5),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
 
         # 緊急停止時は大文字で警告表示
         if emergency:
             cv2.putText(dbg, f"EMERGENCY BRAKE! Green: {green_ratio*100:.1f}%", (20, 50),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 3)
         else:
+            # 足元重心 (緑丸)
+            cv2.circle(dbg, (int(center_bottom_x), y_bottom), 6, (0, 255, 0), -1)
             # 近景重心 (黄丸)
             cv2.circle(dbg, (int(center_near_x), y_near), 6, (0, 255, 255), -1)
             # 中間重心 (水色丸)
             cv2.circle(dbg, (int(center_mid_x), y_mid), 6, (255, 255, 0), -1)
-            # 先読み重心 (青丸)
+            # 遠方重心 (青丸)
             cv2.circle(dbg, (int(center_far_x), y_far), 6, (255, 0, 0), -1)
 
-            # Polyfit 2次代数曲線のプレビュー描画 (緑線)
+            # Polyfit 2次代数曲線のプレビュー描画 (赤色曲線)
             try:
-                plot_y = np.linspace(y_far, y_near, 20)
+                plot_y = np.linspace(y_far, y_bottom, 30)
                 plot_x = (poly_coeffs[0] * (plot_y ** 2)) + (poly_coeffs[1] * plot_y) + poly_coeffs[2]
                 pts = np.vstack((plot_x, plot_y)).T.astype(np.int32)
-                cv2.polylines(dbg, [pts], isClosed=False, color=(0, 255, 0), thickness=2)
+                cv2.polylines(dbg, [pts], isClosed=False, color=(0, 0, 255), thickness=2)
             except Exception:
                 pass
 
