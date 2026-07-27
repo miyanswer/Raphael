@@ -1,0 +1,52 @@
+[0.000000] (-) TimerEvent: {}
+[0.000313] (raphael_enterprise) JobQueued: {'identifier': 'raphael_enterprise', 'dependencies': OrderedDict()}
+[0.000339] (raphael_enterprise) JobStarted: {'identifier': 'raphael_enterprise'}
+[0.099665] (-) TimerEvent: {}
+[0.199988] (-) TimerEvent: {}
+[0.300252] (-) TimerEvent: {}
+[0.400514] (-) TimerEvent: {}
+[0.500776] (-) TimerEvent: {}
+[0.600999] (-) TimerEvent: {}
+[0.701252] (-) TimerEvent: {}
+[0.801517] (-) TimerEvent: {}
+[0.889553] (raphael_enterprise) Command: {'cmd': ['/usr/bin/python3', '-W', 'ignore:setup.py install is deprecated', '-W', 'ignore:easy_install command is deprecated', 'setup.py', 'egg_info', '--egg-base', '../../build/raphael_enterprise', 'build', '--build-base', '/home/user25/raphael_ws/build/raphael_enterprise/build', 'install', '--record', '/home/user25/raphael_ws/build/raphael_enterprise/install.log', '--single-version-externally-managed', 'install_data'], 'cwd': '/home/user25/raphael_ws/src/raphael_enterprise', 'env': {'VSCODE_CWD': '/home/user25/Antigravity IDE', 'USER': 'user25', 'ANTIGRAVITY_SOURCE_METADATA': '{"tool":{"conversationId":"ae486a09-5802-4e9f-abd2-41669ef98aaf","stepIndex":1013,"toolCall":{"id":"Vu4cXhNu","name":"run_command","argumentsJson":"{\\"CommandLine\\":\\"colcon build --packages-select raphael_enterprise\\",\\"Cwd\\":\\"/home/user25/raphael_ws\\",\\"WaitMsBeforeAsync\\":8000,\\"toolAction\\":\\"Rebuilding raphael_enterprise package with colcon\\",\\"toolSummary\\":\\"Rebuild raphael_enterprise package with colcon\\"}","thinkingSignature":"EjQKMgERTTIPvXGSAHuV25iZR3cyxggJuj47FkQpq5wj0IHdqKLS6bk5H9r2FSS3Cm09LKVX","originalName":"run_command"}}}', 'LC_TIME': 'ja_JP.UTF-8', 'VSCODE_NLS_CONFIG': '{"userLocale":"en-us","osLocale":"en-us","resolvedLanguage":"en","defaultMessagesFile":"/home/user25/Antigravity IDE/resources/app/out/nls.messages.json","locale":"en-us","availableLanguages":{}}', 'XDG_SESSION_TYPE': 'wayland', 'SHLVL': '0', 'HOME': '/home/user25', 'CHROME_DESKTOP': 'antigravity-ide.desktop', 'DESKTOP_SESSION': 'ubuntu', 'VSCODE_IPC_HOOK': '/run/user/1000/vscode-bcdabd62-1.10-main.sock', 'GNOME_SHELL_SESSION_MODE': 'ubuntu', 'GTK_MODULES': 'gail:atk-bridge', 'PAGER': 'cat', 'LC_MONETARY': 'ja_JP.UTF-8', 'MANAGERPID': '1911', 'DBUS_STARTER_BUS_TYPE': 'session', 'SYSTEMD_EXEC_PID': '2209', 'DBUS_SESSION_BUS_ADDRESS': 'unix:path=/run/user/1000/bus,guid=2b8451e6a18e117f34db70ee6a6303db', 'ANTIGRAVITY_AGENT': '1', 'GIO_LAUNCHED_DESKTOP_FILE_PID': '74044', 'IM_CONFIG_PHASE': '1', 'WAYLAND_DISPLAY': 'wayland-0', 'LOGNAME': 'user25', '_': '/usr/bin/colcon', 'JOURNAL_STREAM': '8:22773', 'XDG_SESSION_CLASS': 'user', 'USERNAME': 'user25', 'TERM': 'dumb', 'GNOME_DESKTOP_SESSION_ID': 'this-is-deprecated', 'FC_FONTATIONS': '1', 'ANTIGRAVITY_EDITOR_APP_ROOT': '/home/user25/Antigravity IDE/resources/app', 'PATH': '/home/user25/.gemini/antigravity-ide/bin:/home/user25/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:/snap/bin', 'SESSION_MANAGER': 'local/user25-Alienware-m15-R2:@/tmp/.ICE-unix/2209,unix/user25-Alienware-m15-R2:/tmp/.ICE-unix/2209', 'INVOCATION_ID': '992a4f6a5a654bd8a5d4853ceb724530', 'XDG_MENU_PREFIX': 'gnome-', 'LC_ADDRESS': 'ja_JP.UTF-8', 'GNOME_SETUP_DISPLAY': ':1', 'XDG_RUNTIME_DIR': '/run/user/1000', 'GDK_BACKEND': 'wayland', 'DISPLAY': ':0', 'LANG': 'en_US.UTF-8', 'XDG_CURRENT_DESKTOP': 'ubuntu:GNOME', 'LC_TELEPHONE': 'ja_JP.UTF-8', 'XMODIFIERS': '@im=ibus', 'XDG_SESSION_DESKTOP': 'ubuntu', 'XAUTHORITY': '/run/user/1000/.mutter-Xwaylandauth.XUXZS3', 'SSH_AGENT_LAUNCHER': 'gnome-keyring', 'SSH_AUTH_SOCK': '/run/user/1000/keyring/ssh', 'SHELL': '/bin/bash', 'ANTIGRAVITY_LS_ADDRESS': 'localhost:40305', 'LC_NAME': 'ja_JP.UTF-8', 'QT_ACCESSIBILITY': '1', 'GDMSESSION': 'ubuntu', 'LC_MEASUREMENT': 'ja_JP.UTF-8', 'LC_IDENTIFICATION': 'ja_JP.UTF-8', 'GIT_PAGER': 'cat', 'QT_IM_MODULE': 'ibus', 'ANTIGRAVITY_TRAJECTORY_ID': '0b6a40ab-70ea-48c8-b66b-32e18fbebf61', 'PWD': '/home/user25/raphael_ws/build/raphael_enterprise', 'LC_ALL': 'en_US.UTF-8', 'XDG_CONFIG_DIRS': '/etc/xdg/xdg-ubuntu:/etc/xdg', 'VSCODE_CODE_CACHE_PATH': '/home/user25/.config/Antigravity IDE/CachedData/e0b7a2bcf575cfba10528c4e7c10bd3ce2d7769a', 'DBUS_STARTER_ADDRESS': 'unix:path=/run/user/1000/bus,guid=2b8451e6a18e117f34db70ee6a6303db', 'XDG_DATA_DIRS': '/usr/share/ubuntu:/usr/local/share/:/usr/share/:/var/lib/snapd/desktop', 'LC_NUMERIC': 'ja_JP.UTF-8', 'LC_PAPER': 'ja_JP.UTF-8', 'COLCON': '1', 'ANTIGRAVITY_CSRF_TOKEN': 'ac623e50-939e-4a24-9e71-51c923f775c5', 'VSCODE_PID': '74044', 'PYTHONPATH': '/home/user25/raphael_ws/build/raphael_enterprise/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/user25/raphael_ws/install/raphael_enterprise/lib/python3.10/site-packages:'}, 'shell': False}
+[0.901603] (-) TimerEvent: {}
+[1.001835] (-) TimerEvent: {}
+[1.102109] (-) TimerEvent: {}
+[1.165457] (raphael_enterprise) StdoutLine: {'line': b'running egg_info\n'}
+[1.182202] (raphael_enterprise) StdoutLine: {'line': b'writing ../../build/raphael_enterprise/raphael_enterprise.egg-info/PKG-INFO\n'}
+[1.182723] (raphael_enterprise) StdoutLine: {'line': b'writing dependency_links to ../../build/raphael_enterprise/raphael_enterprise.egg-info/dependency_links.txt\n'}
+[1.182883] (raphael_enterprise) StdoutLine: {'line': b'writing entry points to ../../build/raphael_enterprise/raphael_enterprise.egg-info/entry_points.txt\n'}
+[1.183146] (raphael_enterprise) StdoutLine: {'line': b'writing requirements to ../../build/raphael_enterprise/raphael_enterprise.egg-info/requires.txt\n'}
+[1.183300] (raphael_enterprise) StdoutLine: {'line': b'writing top-level names to ../../build/raphael_enterprise/raphael_enterprise.egg-info/top_level.txt\n'}
+[1.202283] (-) TimerEvent: {}
+[1.218226] (raphael_enterprise) StdoutLine: {'line': b"reading manifest file '../../build/raphael_enterprise/raphael_enterprise.egg-info/SOURCES.txt'\n"}
+[1.219486] (raphael_enterprise) StdoutLine: {'line': b"writing manifest file '../../build/raphael_enterprise/raphael_enterprise.egg-info/SOURCES.txt'\n"}
+[1.219818] (raphael_enterprise) StdoutLine: {'line': b'running build\n'}
+[1.219916] (raphael_enterprise) StdoutLine: {'line': b'running build_py\n'}
+[1.220114] (raphael_enterprise) StdoutLine: {'line': b'copying raphael_enterprise/reviewer_node.py -> /home/user25/raphael_ws/build/raphael_enterprise/build/lib/raphael_enterprise\n'}
+[1.220328] (raphael_enterprise) StdoutLine: {'line': b'copying raphael_enterprise/course_lap_node.py -> /home/user25/raphael_ws/build/raphael_enterprise/build/lib/raphael_enterprise\n'}
+[1.220611] (raphael_enterprise) StdoutLine: {'line': b'copying raphael_enterprise/architect_node.py -> /home/user25/raphael_ws/build/raphael_enterprise/build/lib/raphael_enterprise\n'}
+[1.220712] (raphael_enterprise) StdoutLine: {'line': b'copying raphael_enterprise/cto_node.py -> /home/user25/raphael_ws/build/raphael_enterprise/build/lib/raphael_enterprise\n'}
+[1.220792] (raphael_enterprise) StdoutLine: {'line': b'copying raphael_enterprise/__init__.py -> /home/user25/raphael_ws/build/raphael_enterprise/build/lib/raphael_enterprise\n'}
+[1.221208] (raphael_enterprise) StdoutLine: {'line': b'running install\n'}
+[1.225283] (raphael_enterprise) StdoutLine: {'line': b'running install_lib\n'}
+[1.242758] (raphael_enterprise) StdoutLine: {'line': b'copying /home/user25/raphael_ws/build/raphael_enterprise/build/lib/raphael_enterprise/course_lap_node.py -> /home/user25/raphael_ws/install/raphael_enterprise/lib/python3.10/site-packages/raphael_enterprise\n'}
+[1.243316] (raphael_enterprise) StdoutLine: {'line': b'byte-compiling /home/user25/raphael_ws/install/raphael_enterprise/lib/python3.10/site-packages/raphael_enterprise/course_lap_node.py to course_lap_node.cpython-310.pyc\n'}
+[1.244917] (raphael_enterprise) StdoutLine: {'line': b'running install_data\n'}
+[1.245146] (raphael_enterprise) StdoutLine: {'line': b'copying resource/raphael_enterprise -> /home/user25/raphael_ws/install/raphael_enterprise/share/ament_index/resource_index/packages\n'}
+[1.245335] (raphael_enterprise) StdoutLine: {'line': b'copying package.xml -> /home/user25/raphael_ws/install/raphael_enterprise/share/raphael_enterprise\n'}
+[1.245506] (raphael_enterprise) StdoutLine: {'line': b'running install_egg_info\n'}
+[1.263296] (raphael_enterprise) StdoutLine: {'line': b"removing '/home/user25/raphael_ws/install/raphael_enterprise/lib/python3.10/site-packages/raphael_enterprise-0.0.0-py3.10.egg-info' (and everything under it)\n"}
+[1.263541] (raphael_enterprise) StdoutLine: {'line': b'Copying ../../build/raphael_enterprise/raphael_enterprise.egg-info to /home/user25/raphael_ws/install/raphael_enterprise/lib/python3.10/site-packages/raphael_enterprise-0.0.0-py3.10.egg-info\n'}
+[1.264253] (raphael_enterprise) StdoutLine: {'line': b'running install_scripts\n'}
+[1.302381] (-) TimerEvent: {}
+[1.388805] (raphael_enterprise) StdoutLine: {'line': b'Installing architect_node script to /home/user25/raphael_ws/install/raphael_enterprise/lib/raphael_enterprise\n'}
+[1.389019] (raphael_enterprise) StdoutLine: {'line': b'Installing course_lap_node script to /home/user25/raphael_ws/install/raphael_enterprise/lib/raphael_enterprise\n'}
+[1.389200] (raphael_enterprise) StdoutLine: {'line': b'Installing cto_node script to /home/user25/raphael_ws/install/raphael_enterprise/lib/raphael_enterprise\n'}
+[1.389283] (raphael_enterprise) StdoutLine: {'line': b'Installing reviewer_node script to /home/user25/raphael_ws/install/raphael_enterprise/lib/raphael_enterprise\n'}
+[1.389596] (raphael_enterprise) StdoutLine: {'line': b"writing list of installed files to '/home/user25/raphael_ws/build/raphael_enterprise/install.log'\n"}
+[1.402475] (-) TimerEvent: {}
+[1.417849] (raphael_enterprise) CommandEnded: {'returncode': 0}
+[1.428071] (raphael_enterprise) JobEnded: {'identifier': 'raphael_enterprise', 'rc': 0}
+[1.428858] (-) EventReactorShutdown: {}

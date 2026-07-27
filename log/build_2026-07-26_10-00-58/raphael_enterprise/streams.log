@@ -1,0 +1,31 @@
+[0.965s] Invoking command in '/home/user25/raphael_ws/src/raphael_enterprise': PYTHONPATH=/home/user25/raphael_ws/build/raphael_enterprise/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/user25/raphael_ws/install/raphael_enterprise/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../../build/raphael_enterprise build --build-base /home/user25/raphael_ws/build/raphael_enterprise/build install --record /home/user25/raphael_ws/build/raphael_enterprise/install.log --single-version-externally-managed install_data
+[1.267s] running egg_info
+[1.287s] writing ../../build/raphael_enterprise/raphael_enterprise.egg-info/PKG-INFO
+[1.288s] writing dependency_links to ../../build/raphael_enterprise/raphael_enterprise.egg-info/dependency_links.txt
+[1.288s] writing entry points to ../../build/raphael_enterprise/raphael_enterprise.egg-info/entry_points.txt
+[1.288s] writing requirements to ../../build/raphael_enterprise/raphael_enterprise.egg-info/requires.txt
+[1.288s] writing top-level names to ../../build/raphael_enterprise/raphael_enterprise.egg-info/top_level.txt
+[1.340s] reading manifest file '../../build/raphael_enterprise/raphael_enterprise.egg-info/SOURCES.txt'
+[1.341s] writing manifest file '../../build/raphael_enterprise/raphael_enterprise.egg-info/SOURCES.txt'
+[1.341s] running build
+[1.341s] running build_py
+[1.341s] copying raphael_enterprise/reviewer_node.py -> /home/user25/raphael_ws/build/raphael_enterprise/build/lib/raphael_enterprise
+[1.341s] copying raphael_enterprise/course_lap_node.py -> /home/user25/raphael_ws/build/raphael_enterprise/build/lib/raphael_enterprise
+[1.341s] copying raphael_enterprise/architect_node.py -> /home/user25/raphael_ws/build/raphael_enterprise/build/lib/raphael_enterprise
+[1.342s] copying raphael_enterprise/cto_node.py -> /home/user25/raphael_ws/build/raphael_enterprise/build/lib/raphael_enterprise
+[1.342s] copying raphael_enterprise/__init__.py -> /home/user25/raphael_ws/build/raphael_enterprise/build/lib/raphael_enterprise
+[1.342s] running install
+[1.346s] running install_lib
+[1.367s] running install_data
+[1.367s] copying resource/raphael_enterprise -> /home/user25/raphael_ws/install/raphael_enterprise/share/ament_index/resource_index/packages
+[1.367s] copying package.xml -> /home/user25/raphael_ws/install/raphael_enterprise/share/raphael_enterprise
+[1.367s] running install_egg_info
+[1.389s] removing '/home/user25/raphael_ws/install/raphael_enterprise/lib/python3.10/site-packages/raphael_enterprise-0.0.0-py3.10.egg-info' (and everything under it)
+[1.389s] Copying ../../build/raphael_enterprise/raphael_enterprise.egg-info to /home/user25/raphael_ws/install/raphael_enterprise/lib/python3.10/site-packages/raphael_enterprise-0.0.0-py3.10.egg-info
+[1.390s] running install_scripts
+[1.560s] Installing architect_node script to /home/user25/raphael_ws/install/raphael_enterprise/lib/raphael_enterprise
+[1.560s] Installing course_lap_node script to /home/user25/raphael_ws/install/raphael_enterprise/lib/raphael_enterprise
+[1.560s] Installing cto_node script to /home/user25/raphael_ws/install/raphael_enterprise/lib/raphael_enterprise
+[1.561s] Installing reviewer_node script to /home/user25/raphael_ws/install/raphael_enterprise/lib/raphael_enterprise
+[1.561s] writing list of installed files to '/home/user25/raphael_ws/build/raphael_enterprise/install.log'
+[1.579s] Invoked command in '/home/user25/raphael_ws/src/raphael_enterprise' returned '0': PYTHONPATH=/home/user25/raphael_ws/build/raphael_enterprise/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/user25/raphael_ws/install/raphael_enterprise/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../../build/raphael_enterprise build --build-base /home/user25/raphael_ws/build/raphael_enterprise/build install --record /home/user25/raphael_ws/build/raphael_enterprise/install.log --single-version-externally-managed install_data

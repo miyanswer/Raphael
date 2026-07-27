@@ -1,0 +1,33 @@
+[0.888s] Invoking command in '/home/user25/raphael_ws/src/raphael_enterprise': PYTHONPATH=/home/user25/raphael_ws/build/raphael_enterprise/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/user25/raphael_ws/install/raphael_enterprise/lib/python3.10/site-packages: /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../../build/raphael_enterprise build --build-base /home/user25/raphael_ws/build/raphael_enterprise/build install --record /home/user25/raphael_ws/build/raphael_enterprise/install.log --single-version-externally-managed install_data
+[1.157s] running egg_info
+[1.174s] writing ../../build/raphael_enterprise/raphael_enterprise.egg-info/PKG-INFO
+[1.175s] writing dependency_links to ../../build/raphael_enterprise/raphael_enterprise.egg-info/dependency_links.txt
+[1.175s] writing entry points to ../../build/raphael_enterprise/raphael_enterprise.egg-info/entry_points.txt
+[1.176s] writing requirements to ../../build/raphael_enterprise/raphael_enterprise.egg-info/requires.txt
+[1.176s] writing top-level names to ../../build/raphael_enterprise/raphael_enterprise.egg-info/top_level.txt
+[1.213s] reading manifest file '../../build/raphael_enterprise/raphael_enterprise.egg-info/SOURCES.txt'
+[1.214s] writing manifest file '../../build/raphael_enterprise/raphael_enterprise.egg-info/SOURCES.txt'
+[1.214s] running build
+[1.214s] running build_py
+[1.214s] copying raphael_enterprise/reviewer_node.py -> /home/user25/raphael_ws/build/raphael_enterprise/build/lib/raphael_enterprise
+[1.215s] copying raphael_enterprise/course_lap_node.py -> /home/user25/raphael_ws/build/raphael_enterprise/build/lib/raphael_enterprise
+[1.215s] copying raphael_enterprise/architect_node.py -> /home/user25/raphael_ws/build/raphael_enterprise/build/lib/raphael_enterprise
+[1.215s] copying raphael_enterprise/cto_node.py -> /home/user25/raphael_ws/build/raphael_enterprise/build/lib/raphael_enterprise
+[1.215s] copying raphael_enterprise/__init__.py -> /home/user25/raphael_ws/build/raphael_enterprise/build/lib/raphael_enterprise
+[1.216s] running install
+[1.220s] running install_lib
+[1.238s] copying /home/user25/raphael_ws/build/raphael_enterprise/build/lib/raphael_enterprise/course_lap_node.py -> /home/user25/raphael_ws/install/raphael_enterprise/lib/python3.10/site-packages/raphael_enterprise
+[1.238s] byte-compiling /home/user25/raphael_ws/install/raphael_enterprise/lib/python3.10/site-packages/raphael_enterprise/course_lap_node.py to course_lap_node.cpython-310.pyc
+[1.240s] running install_data
+[1.241s] copying resource/raphael_enterprise -> /home/user25/raphael_ws/install/raphael_enterprise/share/ament_index/resource_index/packages
+[1.241s] copying package.xml -> /home/user25/raphael_ws/install/raphael_enterprise/share/raphael_enterprise
+[1.241s] running install_egg_info
+[1.260s] removing '/home/user25/raphael_ws/install/raphael_enterprise/lib/python3.10/site-packages/raphael_enterprise-0.0.0-py3.10.egg-info' (and everything under it)
+[1.260s] Copying ../../build/raphael_enterprise/raphael_enterprise.egg-info to /home/user25/raphael_ws/install/raphael_enterprise/lib/python3.10/site-packages/raphael_enterprise-0.0.0-py3.10.egg-info
+[1.261s] running install_scripts
+[1.389s] Installing architect_node script to /home/user25/raphael_ws/install/raphael_enterprise/lib/raphael_enterprise
+[1.389s] Installing course_lap_node script to /home/user25/raphael_ws/install/raphael_enterprise/lib/raphael_enterprise
+[1.389s] Installing cto_node script to /home/user25/raphael_ws/install/raphael_enterprise/lib/raphael_enterprise
+[1.389s] Installing reviewer_node script to /home/user25/raphael_ws/install/raphael_enterprise/lib/raphael_enterprise
+[1.390s] writing list of installed files to '/home/user25/raphael_ws/build/raphael_enterprise/install.log'
+[1.420s] Invoked command in '/home/user25/raphael_ws/src/raphael_enterprise' returned '0': PYTHONPATH=/home/user25/raphael_ws/build/raphael_enterprise/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/user25/raphael_ws/install/raphael_enterprise/lib/python3.10/site-packages: /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../../build/raphael_enterprise build --build-base /home/user25/raphael_ws/build/raphael_enterprise/build install --record /home/user25/raphael_ws/build/raphael_enterprise/install.log --single-version-externally-managed install_data
