@@ -49,7 +49,7 @@ class Visualizer(ShowBase):
         self.sub_cam = self.makeCamera(self.sub_win)
         self.sub_cam.reparentTo(self.render)
         # コース全体の中央上空 (Z=150.0m) に固定配置
-        self.sub_cam.setPos(self.map_center_x, self.map_center_y, 150.0)
+        self.sub_cam.setPos(self.map_center_x, self.map_center_y, 200.0)
         self.sub_cam.setHpr(0, -90, 0)
 
     def _build_ground_polygon(self):

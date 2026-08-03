@@ -2,14 +2,14 @@ import os
 
 # 【コース寸法パラメータ】
 SEGMENTS = [
-    {"id": "L1", "type": "straight", "length": 14.79},
-    {"id": "C1", "type": "arc",      "radius": 15.0, "angle_deg":  60, "direction": "left"},
-    {"id": "L2", "type": "straight", "length": 40.41},
-    {"id": "C2", "type": "arc",      "radius": 15.0, "angle_deg": 120, "direction": "left"},
-    {"id": "L3", "type": "straight", "length": 35.0},
-    {"id": "C3", "type": "arc",      "radius": 15.0, "angle_deg":  90, "direction": "left"},
-    {"id": "L4", "type": "straight", "length": 35.0},
-    {"id": "C4", "type": "arc",      "radius": 15.0, "angle_deg":  90, "direction": "left"},
+    {"id": "L1", "type": "straight", "length": 21.0},
+    {"id": "C1", "type": "arc",      "radius": 18.5, "angle_deg": 68, "direction": "left"},
+    {"id": "L2", "type": "straight", "length": 48.5},
+    {"id": "C2", "type": "arc",      "radius": 18.5, "angle_deg": 112, "direction": "left"},
+    {"id": "L3", "type": "straight", "length": 39.17},
+    {"id": "C3", "type": "arc",      "radius": 18.5, "angle_deg": 90, "direction": "left"},
+    {"id": "L4", "type": "straight", "length": 44.97},
+    {"id": "C4", "type": "arc",      "radius": 18.5, "angle_deg": 90, "direction": "left"},
 ]
 
 # 【ロボットパラメータ】
