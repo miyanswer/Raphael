@@ -20,7 +20,7 @@ class CtoNode(Node):
             base_url="http://localhost:11435/v1",
             api_key="antigravity-integrated-token"
         )
-        self.model_name = "antigravity-gemini-3.1-pro"
+        self.model_name = "antigravity-gemini-3.1-pro-high"
 
         # 🖼️ 画像保存用ディレクトリ (~/raphael_ws/imgs/)
         self.imgs_dir = Path.home() / "raphael_ws" / "imgs"
