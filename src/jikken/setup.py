@@ -26,6 +26,9 @@ setup(
         'console_scripts': [
             'zed_publisher = jikken.zed_publisher:main',
             'zed_publisher_fhd = jikken.zed_publisher_fhd:main',
+            'zed_imu_publisher = jikken.zed_imu_publisher:main',
+            'conduit_imu_publisher = jikken.conduit_imu_publisher:main',
+            'web_imu_publisher = jikken.web_imu_publisher:main',
             'zed_h264_recorder = jikken.zed_h264_recorder_publisher:main',
             'mp4_publisher = jikken.mp4_publisher:main',
             'zed_svo_recorder = jikken.zed_svo_recorder_publisher:main',
