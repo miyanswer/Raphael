@@ -30,7 +30,7 @@ setup(
             'conduit_imu_publisher = jikken.conduit_imu_publisher:main',
             'web_imu_publisher = jikken.web_imu_publisher:main',
             'zed_h264_recorder = jikken.zed_h264_recorder_publisher:main',
-            'mp4_publisher = jikken.mp4_publisher:main',
+            'from_h264_to_topic = jikken.from_h264_to_topic:main',
             'zed_svo_recorder = jikken.zed_svo_recorder_publisher:main',
             'svo_publisher = jikken.svo_publisher:main',
         ],
