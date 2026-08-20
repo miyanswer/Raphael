@@ -1,6 +1,6 @@
 from setuptools import find_packages, setup
 
-package_name = 'raphael_enterprise'
+package_name = 'jikken'
 
 setup(
     name=package_name,
@@ -24,11 +24,12 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'cto_node = raphael_enterprise.cto_node:main',
-            'architect_node = raphael_enterprise.architect_node:main',
-            'reviewer_node = raphael_enterprise.reviewer_node:main',
-            'course_lap_node = raphael_enterprise.course_lap_node:main',
-            'unity_agent_node = raphael_enterprise.unity_agent_node:main',
+            'zed_publisher = jikken.zed_publisher:main',
+            'zed_publisher_fhd = jikken.zed_publisher_fhd:main',
+            'zed_h264_recorder = jikken.zed_h264_recorder_publisher:main',
+            'mp4_publisher = jikken.mp4_publisher:main',
+            'zed_svo_recorder = jikken.zed_svo_recorder_publisher:main',
+            'svo_publisher = jikken.svo_publisher:main',
         ],
     },
 )
